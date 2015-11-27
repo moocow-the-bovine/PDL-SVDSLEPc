@@ -1,0 +1,69 @@
+=pod
+
+README for PDL::SVDSLEPc
+
+=head1 ABSTRACT
+
+PDL::SVDLIBC - PDL interface SLEPc sparse singular value decomposition
+
+=head1 REQUIREMENTS
+
+=over 4
+
+=item PDL
+
+Tested version 2.015.
+
+=item SLEPc
+
+"Scalable Library for Eigenvalue Problem Computations".
+Tested version 3.4.2, debian packages libslepc3.4.2, libslepc3.4.2-dev.
+
+Available from L<http://slepc.upv.es/>.
+
+=item PETSc
+
+"Portable, Extensible Toolkit for Scientific Computation", required by SLEPc.
+Tested version 3.4.2, debian packages petsc3.4.2, petsc3.4.2-dev.
+
+Available from L<http://www.mcs.anl.gov/petsc/>.
+
+=back
+
+
+=head1 DESCRIPTION
+
+PDL::SVDSLEPc provides a PDL interface to the SLEPc routines
+for singular value decomposition of large sparse matrices.
+
+=head1 BUILDING
+
+Build this module as you would any perl module, by doing something
+akin to the following:
+
+ gzip -dc distname-XX.YY.tar.gz | tar -xof -
+ cd distname-XX.YY/
+ perl Makefile.PL
+ make
+ make test                                     # optional
+ make install
+
+See L<perlmodinstall>(1) for details.
+
+During the build process, you may be prompted for the locations
+of required libraries, header files, etc.
+
+=head1 AUTHOR
+
+Bryan Jurish E<lt>moocow@cpan.orgE<gt>
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright (c) 2015, Bryan Jurish.  All rights reserved.
+
+This package is free software, and entirely without warranty.
+You may redistribute it and/or modify it under the same terms
+as Perl itself, either 5.20.2 or any newer version of Perl 5
+you have available.
+
+=cut
