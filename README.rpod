@@ -4,7 +4,7 @@ README for PDL::SVDSLEPc
 
 =head1 ABSTRACT
 
-PDL::SVDLIBC - PDL interface SLEPc sparse singular value decomposition
+PDL::SVDLIBC - PDL interface to SLEPc sparse singular value decomposition
 
 =head1 REQUIREMENTS
 
