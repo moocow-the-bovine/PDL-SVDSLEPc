@@ -17,7 +17,7 @@ BEGIN{
 
 ##---------------------------------------------------------------------
 ## test: data
-use vars qw($p $whichi $whichv $ptr $rowids $nzvals $a);
+use vars qw($p $whichi $whichv $ptr $colids $nzvals $a);
 sub tdata {
   $p = $a = pdl(double, [
 			 [10,0,0,0,-2,0,0],
@@ -57,17 +57,17 @@ sub udata {
   ($n,$m) = $p->dims;
   ##
   ##-- ccs encode
-  ($ptr,$rowids,$nzvals) = ccsencode($p);
+  ($ptr,$colids,$nzvals) = ccsencode($p);
   #$ptr = $ptr->convert(longlong);
-  #$rowids = $rowids->convert(longlong);
+  #$colids = $colids->convert(longlong);
   ##
-  ##-- dok encode
+  ##-- coo-encode
   $whichi = $p->whichND->vv_qsortvec;
   $whichv = $p->indexND($whichi);
   ##
   ##-- HACK: allocate an extra slot in $ptr
   $ptr->reshape($ptr->nelem+1);
-  $ptr->set(-1, $rowids->nelem);
+  $ptr->set(-1, $colids->nelem);
 }
 
 ##---------------------------------------------------------------------
@@ -78,8 +78,24 @@ sub test_const {
   print "petsc_version = ", PDL::SVDSLEPc::petsc_version(), "\n";
   print "library_version [list] = ", PDL::SVDSLEPc::library_version(), "\n";
   print "library_version [sclr] = ", scalar(PDL::SVDSLEPc::library_version()), "\n";
+  print "MPI_Comm_size = ", PDL::SVDSLEPc::MPI_Comm_size(), "\n"; ##-- crashes
+  #print "slepc_svd_help():\n"; slepc_svd_help(), "\n";
 }
-test_const;
+#test_const; exit 0;
+
+##---------------------------------------------------------------------
+## test: option passing
+sub test_opts {
+  local $, = '';
+  my $u = zeroes($d,$m);
+  my $s = zeroes($d);
+  my $v = zeroes($d,$n);
+  my @opts = qw(-svd_nsv 4 -help);
+  my $opts = join("\n", @opts)."\n";
+  print STDERR "nopts=", scalar(@opts), "; optlen=", length($opts), "\n";
+  _slepc_svd_crs($ptr,$colids,$nzvals, $u,$s,$v, $opts,scalar(@opts));
+}
+test_opts; exit 0;
 
 ##---------------------------------------------------------------------
 ## DUMMY

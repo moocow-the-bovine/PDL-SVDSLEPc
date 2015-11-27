@@ -13,17 +13,25 @@ if ($@) {
 }
 
 ##------------------------------------------------------
-## Header: PDL_Indx
+## Header: index type
 require PDL::Core;
-my ($INDX);
-if ($cconfig{ENABLE_PDL_INDX} && defined(&PDL::indx)) {
-  ##-- use this to support 64-bit indices with PDL_Indx (but which() and friends don't return them!)
-  #print STDERR "PDL >= v2.007 detected : using built-in PDL_Indx type\n";
-  $INDX = 'indx';
+my ($INDX,$INDX_P,$INDX_C);
+if ($cconfig{PETSC_USE_64BIT_INDICES}) {
+  if (defined(&PDL::indx)) {
+    ##-- use this to support 64-bit indices with PDL_Indx (but which() and friends don't return them!)
+    #print STDERR "PDL >= v2.007 detected : using built-in PDL_Indx type\n";
+    $INDX   = 'indx';
+    $INDX_P = 'indx';
+    $INDX_C = 'PDL_Indx';
+  } else {
+    $INDX   = 'longlong';
+    $INDX_P = 'longlong';
+    $INDX_C = 'PDL_LongLong';
+  }
 } else {
-  #print STDERR "PDL < v2.007 detected : using hacked PDL_Indx type\n";
-  $INDX = 'int';
-  #pp_addpm("*svdlibc_indx = \&PDL::long;\n");
+  $INDX   = 'int';
+  $INDX_P = 'long';
+  $INDX_C = 'PDL_Long';
 }
 
 
@@ -94,10 +102,57 @@ EOPM
 pp_addhdr(<<'EOH');
 
 #include <slepcversion.h>
+#include <petscmat.h>
 #include <slepcsvd.h>
 
 /*#define CDEBUG 1*/
 /*#define DEBUG_CODE 1*/
+
+//-- ganked from slepc4py
+#define MPICH_SKIP_MPICXX 1
+#define OMPI_SKIP_MPICXX 1
+
+EOH
+
+##======================================================================
+## C Utilities
+##======================================================================
+
+pp_addhdr(<<'EOH');
+
+void svdslepc_init(int argc, const char **argv, const char *help)
+{
+  SlepcInitializeNoPointers(argc, (char**)argv, NULL, help);
+}
+
+/* PAIN AND ANGUISH:
+ * + passing in char *args gives garbage for all but the 1st element if we NUL-terminate on the perl side
+ * + if we \n-terminate, we need to duplicate *args
+ */
+void svdslepc_init_func(const char *func, const char *args, int nargs, const char *help)
+{
+  int argc=1+nargs,i,ai;
+  const char **argv;
+
+  //-- allocate argv
+  argv = (const char**)malloc(argc*sizeof(char*));
+  argv[0] = func;
+  for (ai=1,i=0; ai < argc; ++ai, ++i) {
+    argv[ai] = args+i;
+    for (; args[i] && args[i] != '\n'; ++i) ;
+  }
+
+  //-- call underlying init function
+  svdslepc_init(argc, argv, help);
+
+  //-- cleanup
+  if (argv) free(argv);
+}
+
+void svdslepc_finish(void)
+{
+  SlepcFinalize();
+}
 
 EOH
 
@@ -186,18 +241,51 @@ pp_addpm(<<'EOPM');
 
 =head2 PDL::SVDSLEPc::library_version()
 
-In list context returns a C<petsc_version(),slepc_version()>,
+In list context returns a pair C<(slepc_version(),petsc_version())>,
 in scalar context returns a string with both versions separated
 with a semicolon.
 
 =cut
 
 sub library_version {
-  my @v = (petsc_version(),slepc_version());
+  my @v = (slepc_version(),petsc_version());
   return wantarray ? @v : join('; ', @v);
 }
 
 EOPM
+
+##--------------------------------------------------------------
+## Constants: MPI_Comm_size
+pp_addpm(<<'EOPM');
+
+=pod
+
+=head2 PDL::SVDSLEPc::MPI_Comm_size()
+
+Returns the number of MPI processes available.
+
+=cut
+
+EOPM
+
+pp_addxs('','
+
+int
+MPI_Comm_size()
+PREINIT:
+  PetscErrorCode ierr;
+  PetscMPIInt size;
+  const char *argv[] = {"PDL::SVDSLEPc::MPI_Comm_size"};
+CODE:
+  svdslepc_init(1,argv,NULL);
+  ierr = MPI_Comm_size(PETSC_COMM_WORLD,&size);CHKERRV(ierr);
+  RETVAL = size;
+OUTPUT:
+  RETVAL
+CLEANUP:
+  svdslepc_finish();
+
+');
 
 
 ##======================================================================
@@ -216,6 +304,99 @@ solver class.
 =cut
 
 EOPM
+
+##------------------------------------------------------
+## slepc_svd_help() : help string for svd routine
+
+pp_add_exported('','slepc_svd_help');
+pp_addpm(<<'EOPM');
+
+=pod
+
+=head2 slepc_svd_help
+
+=for sig
+
+ Signature: ()
+
+
+Prints a help message with all supported SLEPc options to STDOUT.
+
+=cut
+
+EOPM
+
+pp_addxs('','
+
+void
+slepc_svd_help()
+PREINIT:
+  PetscErrorCode ierr;
+  const char *argv[2]  = {"PDL::SVDSLEPc::slepc_svd_help","-help"};
+  PetscInt m=4,n=3,nz=0;
+  Mat            A;
+  SVD          svd;             /* singular value problem solver context */
+CODE:
+  svdslepc_init(2,argv,NULL);
+  ierr = MatCreateSeqAIJFromTriple(MPI_COMM_WORLD, m,n, NULL,NULL,NULL, &A,nz,PETSC_FALSE);
+  ierr = SVDCreate(PETSC_COMM_WORLD,&svd);CHKERRV(ierr);
+  ierr = SVDSetOperator(svd,A);CHKERRV(ierr);
+  ierr = SVDSetFromOptions(svd);CHKERRV(ierr);
+  ierr = SVDSolve(svd);CHKERRV(ierr);
+CLEANUP:
+  ierr = SVDDestroy(&svd);CHKERRV(ierr);
+  ierr = MatDestroy(&A);CHKERRV(ierr);
+  svdslepc_finish();
+
+');
+
+
+##------------------------------------------------------
+## slepc_svd_crs() : svd with native compressed row storage representation (no memory bloat)
+
+pp_add_exported('','_slepc_svd_crs');
+pp_def
+  ('_slepc_svd_crs',
+   Pars => join("\n    ",
+		'',
+		qq($INDX  rowptr(mplus1);),
+		qq($INDX  colids(nnz);),
+		qq(double nzvals(nnz);),
+		qq( u(d,m);),
+		qq( s(d);),
+		qq( v(d,n);),
+		'',
+	       ),
+   OtherPars => qq(IV optsArray;),
+   Code =>
+('
+  const char *argv[1]  = {"PDL::SVDSLEPc::_slepc_svd_crs"};
+  PetscErrorCode ierr;
+  Mat A;
+  SVD svd;
+  AV *optsav = INT2PTR(AV*, $COMP(optsArray));
+
+  //svdslepc_init_func("PDL::SVDSLEPc::_slepc_svd_crs",$COMP(opts),$COMP(nopts),NULL);
+  ierr = MatCreateSeqAIJWithArrays(MPI_COMM_WORLD, $SIZE(m),$SIZE(n), $P(rowptr),$P(colids),$P(nzvals), &A);CHKERRV(ierr);
+  ierr = SVDCreate(PETSC_COMM_WORLD,&svd);CHKERRV(ierr);
+  ierr = SVDSetOperator(svd,A);CHKERRV(ierr);
+  ierr = SVDSetFromOptions(svd);CHKERRV(ierr);
+  ierr = SVDSolve(svd);CHKERRV(ierr);
+
+  //-- todo: get output data
+
+  //-- cleanup
+  ierr = SVDDestroy(&svd);CHKERRV(ierr);
+  ierr = MatDestroy(&A);CHKERRV(ierr);
+  svdslepc_finish();
+'),
+   Doc =>
+q(
+TODO
+),
+);
+
+
 
 
 ##======================================================================
@@ -244,7 +425,23 @@ SLEPc by Carmen Campos, Jose E. Roman, Eloy Romero, and Andres Tomas.
 
 =head1 KNOWN BUGS
 
-There should really be a more general and abstract PDL interface to SLEPc.
+=head2 no abstract interface
+
+There should really be a more general and abstract PDL interface to SLEPc/PETsc.
+
+
+=head2 OpenMPI Errors
+
+You might see OpenMPI errors such as the following when trying to use this module:
+
+ mca: base: component find: unable to open /usr/lib/openmpi/lib/openmpi/mca_paffinity_hwloc: perhaps a missing symbol, or compiled for a different version of Open MPI? (ignored)
+
+If you do, you probably need to configure your runtime linker to pre-load the OpenMPI libraries, e.g. with
+
+ export LD_PRELOAD=/usr/lib/libmpi.so
+
+or similar.  An alternative is to build OpenMPI with the C<--disable-dlopen> option.
+See L<http://www.open-mpi.org/faq/?category=troubleshooting#missing-symbols> for details.
 
 =cut
 

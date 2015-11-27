@@ -36,7 +36,7 @@ my @SLEPC_DIRS = (
 		 );
 my $SLEPC_DIR;
 foreach my $d (@SLEPC_DIRS) {
-  if (-d $d && -r "$d/conf/slepc_common") {
+  if (-d $d && -r "$d/conf/slepc_variables") {
     $SLEPC_DIR = $d;
     last;
   }
@@ -44,7 +44,7 @@ foreach my $d (@SLEPC_DIRS) {
 
 ##-- prompt and check
 cprompt("SLEPC_DIR", "SLEPc root directory", $SLEPC_DIR);
-if (!$cconfig{SLEPC_DIR} || !-d $cconfig{SLEPC_DIR} || !-r "$cconfig{SLEPC_DIR}/conf/slepc_common") {
+if (!$cconfig{SLEPC_DIR} || !-d $cconfig{SLEPC_DIR} || !-r "$cconfig{SLEPC_DIR}/conf/slepc_variables") {
   warn("Warning: could not find SLEPc sources in SLEPC_DIR=".($cconfig{SLEPC_DIR}||''));
   #return;
 }
@@ -74,6 +74,32 @@ if (!$cconfig{PETSC_DIR} || !-d $cconfig{PETSC_DIR} || !-r "$cconfig{PETSC_DIR}/
   warn("Warning: could not find PETSc sources in PETSC_DIR=".($cconfig{PETSC_DIR}||''));
   #return;
 }
+
+##--------------------------------------------------------------
+## 64-bit index support?
+
+my $PETSC_USE_64BIT_INDICES = 0;
+if (-r "$cconfig{PETSC_DIR}/petscconf.h") {
+  open(my $fh,"$cconfig{PETSC_DIR}/petscconf.h");
+  while (defined($_=<>)) {
+    if (/^\s*#define\s*PETSC_USE_64BIT_INDICES\s*([0-9]+)/) {
+      $PETSC_USE_64BIT_INDICES = $1+0;
+    }
+  }
+  close($fh);
+}
+$cconfig{PETSC_USE_64BIT_INDICES} = $PETSC_USE_64BIT_INDICES;
+$cconfig{MIN_PDL_VERSION} = $PETSC_USE_64BIT_INDICES ? '2.007' : '0';
+#cprompt("PETSC_USE_64BIT_INDICES", "Use 64-bit indices (requires 64-bit index support in PETSc and PDL >= v2.007)", "y");
+
+
+##--------------------------------------------------------------
+## extra compile flags
+
+cprompt("SVDSLEPC_CPPFLAGS", "Additional preprocessor flags for SVDSLEPc", $ENV{SVDSLEPC_CPPFLAGS});
+cprompt("SVDSLEPC_CCFLAGS", "Additional compiler flags for SVDSLEPc", $ENV{SVDSLEPC_CCFLAGS});
+cprompt("SVDSLEPC_LDFLAGS", "Additional linker flags for SVDSLEPc", $ENV{SVDSLEPC_LDFLAGS});
+
 
 ##--------------------------------------------------------------
 ## save cache file

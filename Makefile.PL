@@ -17,29 +17,26 @@ $package = ["svdslepc.pd",SVDSLEPc,PDL::SVDSLEPc];
 $hash{AUTHOR} = 'Bryan Jurish';
 $hash{ABSTRACT} = 'PDL interface to SLEPc sparse singular value decomposition';
 $hash{PREREQ_PM} = {
-		    PDL=>0,
+		    PDL=>$cconfig{MIN_PDL_VERSION},
 		   };
 $hash{CONFIGURE_REQUIRES} = {
-			     'PDL'=>0,
+			     'PDL'=>$cconfig{MIN_PDL_VERSION},
 			     'ExtUtils::MakeMaker'=>0,
 			     'Data::Dumper'=>0,
 			    };
 $hash{BUILD_REQUIRES}{'Test::More'} = 0;
+
+push(@{$hash{TYPEMAPS}}, 'typemap');
 
 $hash{DIR} = [];
 $hash{VERSION_FROM} = 'svdslepc.pd';
 $hash{LICENSE} = 'perl';
 $hash{realclean}{FILES} .= '*~ *.tmp README.txt Config.cache';
 
-#push(@{$hash{LIBS}},    ' '.$cconfig{SLEPC_LIBS});
-#$hash{INC}           .= ' '.$cconfig{SLEPC_INC};
-#$hash{LDFLAGS}       .= ' '.$cconfig{SLEPC_LDFLAGS};
-#$hash{OPTIMIZE}      .= ' '.$cconfig{SLEPC_CFLAGS};
-
 ##-- include $Config{ccflags} explicitly to avoid errors like:
 ## t/00_basic.t .. Not a CODE reference at /usr/lib/perl/5.14/DynaLoader.pm line 207.
 use Config;
-$hash{CCFLAGS}       .= " $Config{ccflags} ".$cconfig{SLEPC_DEFS};
+$hash{CCFLAGS}  .= " $Config{ccflags} ";
 
 WriteMakefile(%hash);
 
@@ -51,13 +48,21 @@ sub MY::cflags {
 SLEPC_DIR = $::cconfig{SLEPC_DIR}
 PETSC_DIR = $::cconfig{PETSC_DIR}
 
+SVDSLEPC_CPPFLAGS = $::cconfig{SVDSLEPC_CPPFLAGS}
+SVDSLEPC_CCFLAGS = $::cconfig{SVDSLEPC_CCFLAGS}
+SVDSLEPC_LDFLAGS  = $::cconfig{SVDSLEPC_LDFLAGS}
+
+#CCFLAGS_perl := \${CCFLAGS}
 include \$(SLEPC_DIR)/conf/slepc_variables
 
-INC += \$(CCPPFLAGS)
-LDFLAGS += \$(SLEPC_LIB)
-LDDLFLAGS += \$(SLEPC_LIB)
-#OPTIMIZE += 
-#CCFLAGS +=
+#CC = \$(PCC)
+#LD = \$(CLINKER)
+INC += \$(SVDSLEPC_CPPFLAGS) \$(CCPPFLAGS)
+CCFLAGS += \$(SVDSLEPC_CCFLAGS) \$(CCFLAGS_perl) -Wno-write-strings
+LDFLAGS += \$(SVDSLEPC_LDFLAGS) \$(SLEPC_LIB)
+LDDLFLAGS += \$(SVDSLEPC_LDFLAGS) \$(SLEPC_LIB)
+#OPTIMIZE +=
+
 
 EOF
 }
@@ -82,12 +87,6 @@ sub MY::special_targets {
 
 ##-- readme
 readme: README.txt
-
-##-- debug
-slepc-debug:
-	echo "SLEPC_LIB = \$(SLEPC_LIB)"
-	echo "LDFLAGS = \$(LDFLAGS)"
-
 
 EOF
 }
