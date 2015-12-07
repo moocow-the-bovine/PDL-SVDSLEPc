@@ -105,8 +105,12 @@ pp_addhdr(<<'EOH');
 #include <petscmat.h>
 #include <slepcsvd.h>
 
-/*#define CDEBUG 1*/
-/*#define DEBUG_CODE 1*/
+#define SVDSLEPC_DEBUG 1
+#ifdef SVDSLEPC_DEBUG
+# define SVDDEBUG(x) x
+#else
+# define SVDDEBUG(x)
+#endif
 
 //-- ganked from slepc4py
 #define MPICH_SKIP_MPICXX 1
@@ -129,21 +133,22 @@ void svdslepc_init(int argc, const char **argv, const char *help)
  * + passing in char *args gives garbage for all but the 1st element if we NUL-terminate on the perl side
  * + if we \n-terminate, we need to duplicate *args
  */
-void svdslepc_init_func(const char *func, const char *args, int nargs, const char *help)
+void svdslepc_init_func(const char *func, AV *args, const char *help)
 {
-  int argc=1+nargs,i,ai;
+  int i,ai, nopts=1+av_len(args);
   const char **argv;
 
   //-- allocate argv
-  argv = (const char**)malloc(argc*sizeof(char*));
+  argv = (const char**)malloc((1+nopts)*sizeof(char*));
   argv[0] = func;
-  for (ai=1,i=0; ai < argc; ++ai, ++i) {
-    argv[ai] = args+i;
-    for (; args[i] && args[i] != '\n'; ++i) ;
+  SVDDEBUG(fprintf(stderr,"init_func: argv[0/%d] = %s\n", nopts, argv[0]);)
+  for (ai=0; ai < nopts; ++ai) {
+    argv[ai+1] = SvPV_nolen(*av_fetch(args, ai, 0));
+    SVDDEBUG(fprintf(stderr,"init_func: argv[%d/%d] = %s\n", ai+1, nopts, argv[ai+1]);)
   }
 
   //-- call underlying init function
-  svdslepc_init(argc, argv, help);
+  svdslepc_init(2+nopts, argv, help);
 
   //-- cleanup
   if (argv) free(argv);
@@ -319,36 +324,18 @@ pp_addpm(<<'EOPM');
 
  Signature: ()
 
+Prints a help message with all supported SLEPc SVD options to STDOUT.
+Really just a wrapper for
 
-Prints a help message with all supported SLEPc options to STDOUT.
+ _slepc_svd_crs(null,null,null, null,null,null, ['-help']);
 
 =cut
 
+sub slepc_svd_help {
+  _slepc_svd_crs(null,null,null, null,null,null, ['-help']);
+}
+
 EOPM
-
-pp_addxs('','
-
-void
-slepc_svd_help()
-PREINIT:
-  PetscErrorCode ierr;
-  const char *argv[2]  = {"PDL::SVDSLEPc::slepc_svd_help","-help"};
-  PetscInt m=4,n=3,nz=0;
-  Mat            A;
-  SVD          svd;             /* singular value problem solver context */
-CODE:
-  svdslepc_init(2,argv,NULL);
-  ierr = MatCreateSeqAIJFromTriple(MPI_COMM_WORLD, m,n, NULL,NULL,NULL, &A,nz,PETSC_FALSE);
-  ierr = SVDCreate(PETSC_COMM_WORLD,&svd);CHKERRV(ierr);
-  ierr = SVDSetOperator(svd,A);CHKERRV(ierr);
-  ierr = SVDSetFromOptions(svd);CHKERRV(ierr);
-  ierr = SVDSolve(svd);CHKERRV(ierr);
-CLEANUP:
-  ierr = SVDDestroy(&svd);CHKERRV(ierr);
-  ierr = MatDestroy(&A);CHKERRV(ierr);
-  svdslepc_finish();
-
-');
 
 
 ##------------------------------------------------------
@@ -370,22 +357,68 @@ pp_def
    OtherPars => qq(IV optsArray;),
    Code =>
 ('
-  const char *argv[1]  = {"PDL::SVDSLEPc::_slepc_svd_crs"};
   PetscErrorCode ierr;
+  PetscBool      flg_help, flg_nsv,flg_ncv,flg_mpd;
+  PetscInt       i, nsv,ncv,mpd; //-- svd params
   Mat A;
   SVD svd;
-  AV *optsav = INT2PTR(AV*, $COMP(optsArray));
+  Vec uvec,vvec;
+  PetscReal sigma;
 
-  //svdslepc_init_func("PDL::SVDSLEPc::_slepc_svd_crs",$COMP(opts),$COMP(nopts),NULL);
+  //-- initialize
+  SVDDEBUG(fprintf(stderr, "init (m=%d, n=%d, nnz=%d, d=%d)\n", $SIZE(m), $SIZE(n), $SIZE(nnz), $SIZE(d));fflush(stderr);)
+  svdslepc_init_func("PDL::SVDSLEPc::_slepc_svd_crs",INT2PTR(AV*, $COMP(optsArray)),NULL);
+  ierr = PetscOptionsHasName(NULL,"-help",&flg_help);CHKERRV(ierr);
+  if (flg_help) return;
+
+  //-- setup svd
+  SVDDEBUG(fprintf(stderr, "setup svd\n");fflush(stderr);)
   ierr = MatCreateSeqAIJWithArrays(MPI_COMM_WORLD, $SIZE(m),$SIZE(n), $P(rowptr),$P(colids),$P(nzvals), &A);CHKERRV(ierr);
   ierr = SVDCreate(PETSC_COMM_WORLD,&svd);CHKERRV(ierr);
   ierr = SVDSetOperator(svd,A);CHKERRV(ierr);
   ierr = SVDSetFromOptions(svd);CHKERRV(ierr);
+
+  //-- setup #/singular values from input piddles
+  SVDDEBUG(fprintf(stderr, "setup #/values\n");fflush(stderr);)
+  ierr = PetscOptionsGetInt(NULL,"-svd_nsv",&nsv,&flg_nsv);CHKERRV(ierr);
+  if (!flg_nsv || nsv != $SIZE(d)) {
+    SVDDEBUG(fprintf(stderr, "set nsv=SIZE(d)=%d\n", $SIZE(d));fflush(stderr);)
+    nsv = $SIZE(d);
+    ierr = PetscOptionsGetInt(NULL,"-svd_ncv",&ncv,&flg_ncv);CHKERRV(ierr);
+    ierr = PetscOptionsGetInt(NULL,"-svd_mpd",&mpd,&flg_mpd);CHKERRV(ierr);
+    if (!flg_ncv) ncv = PETSC_DECIDE;
+    if (!flg_mpd) mpd = PETSC_DECIDE;
+    ierr = SVDSetDimensions(svd,nsv,ncv,mpd);CHKERRV(ierr);
+  }
+  ierr = SVDGetDimensions(svd,&nsv,&ncv,&mpd);CHKERRV(ierr);
+
+  //-- svd guts
+  SVDDEBUG(fprintf(stderr, "compute (nsv=%d, ncv=%d, mpd=%d)\n", nsv, ncv, mpd);fflush(stderr);)
   ierr = SVDSolve(svd);CHKERRV(ierr);
 
-  //-- todo: get output data
+  //-- get output data
+  SVDDEBUG(fprintf(stderr, "get output data (m=%d, n=%d, d=%d)\n", $SIZE(m), $SIZE(n), $SIZE(d));fflush(stderr);)
+  //ierr = MatCreateVecs(A,&u,&v);CHKERRV(ierr);    //-- documented in petsc-3.6.2, does NOT exist in 3.4.2 (debian wheezy)
+  ierr = MatGetVecs(A,&uvec,&vvec);CHKERRV(ierr);
+  for (i=0; i < nsv; ++i) {
+    PetscScalar *uvals,*vvals;
+    ierr = SVDGetSingularTriplet(svd,i,&sigma,vvec,uvec);CHKERRV(ierr);
+
+    $s(d=>i) = sigma;
+
+    ierr = VecGetArray(uvec,&uvals);CHKERRV(ierr);
+    loop(m) %{ $u(d=>i) = PetscRealPart(uvals[m]); %}
+    ierr = VecRestoreArray(uvec,&uvals);CHKERRV(ierr);
+
+    ierr = VecGetArray(vvec,&vvals);CHKERRV(ierr);
+    loop(n) %{ $v(d=>i) = PetscRealPart(vvals[n]); %}
+    ierr = VecRestoreArray(vvec,&vvals);CHKERRV(ierr);
+  }
 
   //-- cleanup
+  SVDDEBUG(fprintf(stderr, "cleanup\n");fflush(stderr);)
+  ierr = VecDestroy(&uvec);CHKERRV(ierr);
+  ierr = VecDestroy(&vvec);CHKERRV(ierr);
   ierr = SVDDestroy(&svd);CHKERRV(ierr);
   ierr = MatDestroy(&A);CHKERRV(ierr);
   svdslepc_finish();

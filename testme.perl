@@ -17,7 +17,7 @@ BEGIN{
 
 ##---------------------------------------------------------------------
 ## test: data
-use vars qw($p $whichi $whichv $ptr $colids $nzvals $a);
+use vars qw($p $whichi $whichv $ptr $colids $nzvals $a $m $n $d);
 sub tdata {
   $p = $a = pdl(double, [
 			 [10,0,0,0,-2,0,0],
@@ -55,6 +55,8 @@ sub gendatag {
 ##-- update cccs on changed $p
 sub udata {
   ($n,$m) = $p->dims;
+  $d      = pdl(long,[$p->dims])->min;
+  #$d = $n;
   ##
   ##-- ccs encode
   ($ptr,$colids,$nzvals) = ccsencode($p);
@@ -70,6 +72,28 @@ sub udata {
   $ptr->set(-1, $colids->nelem);
 }
 
+##-- common subs
+sub svdreduce {
+  my ($u,$s,$v, $d) = @_;
+  $d = $s->dim(0) if (!defined($d) || $d > $s->dim(0));
+  my $end = $d-1;
+  return ($u->slice("0:$end,:"),$s->slice("0:$end"),$v->slice("0:$end,"));
+}
+sub svdcompose {
+  my ($u,$s,$v) = @_;
+  #return $u x stretcher($s) x $v->xchg(0,1);   ##-- by definition
+  return ($u * $s)->matmult($v->xchg(0,1));     ##-- pdl-ized, more efficient
+}
+sub svdcomposet {
+  my ($ut,$s,$vt) = @_;
+  return svdcompose($ut->xchg(0,1),$s,$vt->xchg(0,1));
+}
+sub svdwanterr {
+  my ($a,$u,$s,$v) = @_;
+  return (($a-svdcompose($u,$s,$v))**2)->flat->sumover;
+}
+
+
 ##---------------------------------------------------------------------
 ## test: constants
 sub test_const {
@@ -79,23 +103,51 @@ sub test_const {
   print "library_version [list] = ", PDL::SVDSLEPc::library_version(), "\n";
   print "library_version [sclr] = ", scalar(PDL::SVDSLEPc::library_version()), "\n";
   print "MPI_Comm_size = ", PDL::SVDSLEPc::MPI_Comm_size(), "\n"; ##-- crashes
-  #print "slepc_svd_help():\n"; slepc_svd_help(), "\n";
 }
 #test_const; exit 0;
 
 ##---------------------------------------------------------------------
+## test: svd help
+sub test_help {
+  local $,= '';
+  print "slepc_svd_help():\n"; slepc_svd_help();
+
+  ##-- redirect to stderr (ugly, but works)
+  if (0) {
+    open(my $oldout, '>&STDOUT');
+    open(STDOUT, ">&STDERR");
+    slepc_svd_help();
+    *STDOUT = *$oldout;
+  }
+}
+#test_help; exit 0;
+
+##---------------------------------------------------------------------
 ## test: option passing
 sub test_opts {
-  local $, = '';
   my $u = zeroes($d,$m);
   my $s = zeroes($d);
   my $v = zeroes($d,$n);
   my @opts = qw(-svd_nsv 4 -help);
-  my $opts = join("\n", @opts)."\n";
-  print STDERR "nopts=", scalar(@opts), "; optlen=", length($opts), "\n";
-  _slepc_svd_crs($ptr,$colids,$nzvals, $u,$s,$v, $opts,scalar(@opts));
+  _slepc_svd_crs($ptr,$colids,$nzvals, $u,$s,$v, \@opts);
 }
-test_opts; exit 0;
+#test_opts; exit 0;
+
+##---------------------------------------------------------------------
+## test: svd computation
+sub test_svd {
+  tdata();
+  my $u = zeroes($d,$m);
+  my $s = zeroes($d);
+  my $v = zeroes($d,$n);
+  my @opts = (@_);
+  _slepc_svd_crs($ptr,$colids,$nzvals, $u,$s,$v, \@opts);
+  print STDERR "sigma = ", $s, "\n";
+
+  my ($u0,$s0,$v0) = svd($a);
+}
+test_svd(@ARGV); exit 0;
+
 
 ##---------------------------------------------------------------------
 ## DUMMY
