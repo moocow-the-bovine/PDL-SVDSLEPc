@@ -61,7 +61,7 @@ sub udata {
   $d1     = $d-1;
   ##
   ##-- ccs encode
-  ($ptr,$colids,$nzvals) = ccsencode($p);
+  ($ptr,$colids,$nzvals)  = ccsencode($p);
   #$ptr = $ptr->convert(longlong);
   #$colids = $colids->convert(longlong);
   ##
@@ -79,6 +79,7 @@ sub udata {
 }
 
 ##-- common subs
+sub min2 { return $_[0]<$_[1] ? $_[0] : $_[1]; }
 sub svdreduce {
   my ($u,$s,$v, $d) = @_;
   $d = $s->dim(0) if (!defined($d) || $d > $s->dim(0));
@@ -140,7 +141,7 @@ sub test_opts {
 #test_opts; exit 0;
 
 ##---------------------------------------------------------------------
-## test: svd computation
+## test: svd computation: basic
 sub svderrs {
   my ($label,$x,$y) = @_;
   my $e = ($x->flat->abs-$y->flat->abs)->abs;
@@ -148,24 +149,30 @@ sub svderrs {
 }
 sub test_svd {
   tdata();
+  print STDERR "data(m=".$a->dim(0).",n=".$a->dim(1)."); d=$d1\n";
+
   my ($u0,$s0,$v0) = svdreduce(svd($a),$d1);
-  print STDERR
-    ("builtin:\n",
-     " + s0 = $s0\n",
-     " + u0(".join(',',$u0->dims).") = $u0",
-     " + v0(".join(',',$v0->dims).") = $v0");
+  if (1) {
+    print STDERR
+      ("builtin:\n",
+       " + s0(".$s0->nelem.") = $s0\n",
+       " + u0(".join(',',$u0->dims).") = $u0",
+       " + v0(".join(',',$v0->dims).") = $v0");
+  }
 
   my $u = zeroes($d1,$m);
   my $s = zeroes($d1);
   my $v = zeroes($d1,$n);
   my @opts = (@_);
-  print STDERR "a=$a; ptr=$ptr; colids=$colids; nzvals=$nzvals\n";
   _slepc_svd_crs($ptr,$colids,$nzvals, $u,$s,$v, \@opts);
-  print STDERR
-    ("slepc:\n",
-     " + s = $s\n",
-     " + u(".join(',',$u->dims).") = $u",
-     " + v(".join(',',$v->dims).") = $v");
+  if (1) {
+    #print STDERR "a=$a; ptr=$ptr; colids=$colids; nzvals=$nzvals\n";
+    print STDERR
+      ("slepc:\n",
+       " + s(".$s->nelem.") = $s\n",
+       " + u(".join(',',$u->dims).") = $u",
+       " + v(".join(',',$v->dims).") = $v");
+  }
 
   ##-- check errors
   local $,='';
@@ -177,9 +184,55 @@ sub test_svd {
      svderrs("a-(u,s,v)",svdcompose($u,$s,$v),$a),
     );
 }
-test_svd(@ARGV); exit 0;
+#test_svd(@ARGV); exit 0;
 
-## TODO: fix dims: looks like we've swapped u,v
+##---------------------------------------------------------------------
+## test: svd computation: transpose
+sub test_svdx {
+  tdata();
+
+  my $ax = $a->xchg(0,1);
+  my $dx = min2($ax->dims)-1;
+  my ($xptr,$xcolids,$xvals) = ccsencode($ax);
+  $xptr->reshape($xptr->nelem+1);
+  $xptr->set(-1, $xcolids->nelem);
+  print STDERR "xdata(xm=".$ax->dim(0).",xn=".$ax->dim(1)."); d=$dx\n";
+
+  my ($u0,$s0,$v0) = svdreduce(svd($ax),$dx);
+  if (0) {
+    print STDERR
+      ("builtin:\n",
+       " + s0(".$s0->nelem.") = $s0\n",
+       " + u0(".join(',',$u0->dims).") = $u0",
+       " + v0(".join(',',$v0->dims).") = $v0");
+  }
+  #exit 0;
+
+  my $u = zeroes($dx,$ax->dim(1));
+  my $s = zeroes($dx);
+  my $v = zeroes($dx,$ax->dim(0));
+  my @opts = (@_);
+  _slepc_svd_crs($xptr,$xcolids,$xvals, $u,$s,$v, \@opts);
+  if (0) {
+    #print STDERR "a=$a; ptr=$ptr; colids=$colids; nzvals=$nzvals\n";
+    print STDERR
+      ("slepc:\n",
+       " + s(".$s->nelem.") = $s\n",
+       " + u(".join(',',$u->dims).") = $u",
+       " + v(".join(',',$v->dims).") = $v");
+  }
+
+  ##-- check errors
+  local $,='';
+  print STDERR
+    (svderrs("u0-u",$u0,$u),
+     svderrs("s0-s",$s0,$s),
+     svderrs("v0-v",$v0,$v),
+     svderrs("a-(u0,s0,v0)",svdcompose($u0,$s0,$v0),$a->xchg(0,1)),
+     svderrs("a-(u,s,v)",svdcompose($u,$s,$v),$a->xchg(0,1)),
+    );
+}
+test_svdx(@ARGV); exit 0;
 
 
 ##---------------------------------------------------------------------

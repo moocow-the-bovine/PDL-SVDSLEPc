@@ -517,7 +517,7 @@ most 128 iterations and a tolerance of 1e-5, you could call:
 
 ... but note that the number of singular values to be computed is determined
 by the PDL size parameter $d, clobbering any value specified by the option
-parmeter C<-svd_nsv>.
+parmeter C<-svd_nsv>.  Also note that $d may not exceed min($m,$n).
 
 ),
 );
