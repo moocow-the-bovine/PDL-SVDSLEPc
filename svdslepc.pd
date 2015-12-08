@@ -61,41 +61,36 @@ PDL::SVDSLEPc - PDL interface to SLEPc sparse singular value decomposition
 
  ##---------------------------------------------------------------------
  ## Input matrix (dense)
- ##---------------------------------------------------------------------
+ 
  $m = 100;                    ##-- number of rows
  $n = 50;                     ##-- number of columns
  $a = random(double,$m,$n);   ##-- random matrix
 
  ##---------------------------------------------------------------------
  ## Input matrix (sparse)
- ##---------------------------------------------------------------------
- $d  = 0.1;                   ##-- target density of sparse matrix
- $ix = (random(2,$d*$m*$n)    ##-- random whichND()-style index piddle
-         * pdl([$m,$n])       ##   ... of dimension ($m,$n)
-        )->long               ##   ... as integer values
-         ->uniqvec;           ##   ... ensure uniqueness
- $nnz = $wnd->dim(1);         ##-- number of non-zeroes
- $nz  = random($nnz);         ##-- random non-zero values
+ 
+ use PDL::CCS;
+ $a  *= ($a->random>0.9);      ##-- make sparse
+ $ccs = $a->toccs();           ##-- encode as PDL::CCS::Nd object
+ 
+ ##-- get Harwell-Boeing encoding triple
+ $ptr    = $ccs->ptr(0);
+ $colids = $ccs->_whichND->slice("(1),");
+ $nzvals = $cccs->_nzvals;
 
  ##---------------------------------------------------------------------
- ## Output pdls [TODO]
- ##---------------------------------------------------------------------
- $d  = $n;                   ##-- max number of output dimensions
- $ut = zeroes(double,$m,$d); ##-- left singular components
- $s  = zeroes(double,$d);    ##-- singular values (diagnonal vector)
- $vt = zeroes(double,$n,$d); ##-- right singular components
+ ## SLEPc Singular Value Decomposition
+ 
+ slepc_svd_help();            ##-- print available options to STDOUT
+ 
+ ($u,$s,$v) = slepc_svd($ccs, ['-svd_nsv'=>32]);                 ##-- from PDL::CCS::Nd object
+ ($u,$s,$v) = slepc_svd($ptr,$colids,$nzvals, ['-svd_nsv'=>32]); ##-- from Harwell-Boeing encoding
 
- ##---------------------------------------------------------------------
- ## Singular Value Decomposition [TODO]
- ##---------------------------------------------------------------------
- print slepc_svd_help();     ##-- show available parameters
- svdlas2d($a, $maxiters, $end, $kappa, $ut, $s, $vt);
 
 =head1 DESCRIPTION
 
-PDL::SVDLIBC provides a PDL interface to the SVDLIBC routines
-for singular value decomposition of large sparse matrices.
-SVDLIBC is available from http://tedlab.mit.edu/~dr/SVDLIBC/
+PDL::SVDSLEPc provides a PDL interface to the SLEPc singular value decomposition solver(s).
+SLEPc itself is available from L<http://slepc.upv.es/>.
 
 =cut
 
@@ -400,13 +395,13 @@ pp_addpm(<<"EOPM");
 	      $INDX  rowptr(mplus1);
 	      $INDX  colids(nnz);
 	      double nzvals(nnz);
-	      double [o]u(d,n);
-	      double [o]s(d);
-	      double [o]v(d,m);
-              int    M=>d;
-              int    N=>n;
-              int    D=>d;
-              \@options;
+	      double [o]u(d,n);         # optional
+	      double [o]s(d);           # optional
+	      double [o]v(d,m);         # optional
+              int    M=>d;              # optional
+              int    N=>n;              # optional
+              int    D=>d;              # optional
+              \\\@options;                # optional
              )
 EOPM
 pp_addpm(<<'EOPM');
@@ -421,6 +416,8 @@ row-pointer $rowptr() is of size ($m+1)
 for a dense matrix $a with $m rows,
 where $rowptr($m)==$nnz is the total number of nonzero
 values in $a.
+As an alternative, a single L<PDL::CCS::Nd|PDL::CCS::Nd> object can be passed
+in place of of $rowptr, $colids, and $nzvals.
 
 The left singular components are returned in the matrix $u(),
 the singular values themselved in the vector $s(), and the
@@ -446,17 +443,30 @@ most 128 iterations and a tolerance of 1e-5, you could call:
 
  ($u,$s,$v) = slepc_svd($rowptr,$colids,$nzvals, [qw(-svd_nsv 32 -svd_max_it 128 -svd_tol 1e-5)]);
 
+... or if you already have a L<PDL::CCS::Nd|PDL::CCS::Nd> object $ccs handy:
+
+  ($u,$s,$v) = $ccs->slepc_svd([-svd_nsv=>32, -svd_max_it=>128, -svd_tol=>1e-5]);
+
 =cut
 
+BEGIN { *PDL::CCS::Nd::slepc_svd = \&slepc_svd; }
 sub slepc_svd {
-  my ($rowptr,$colids,$nzvals, @args) = @_;
+  my ($rowptr,$colids,$nzvals, @usv,@dims,@opts);
+  if (UNIVERSAL::isa($_[0],"PDL::CCS::Nd")) {
+    my $ccs = shift->to_physically_indexed();
+    $rowptr = $ccs->ptr(0);
+    $colids = $ccs->_whichND->slice("(1),");
+    $nzvals = $ccs->_nzvals;
+    @dims   = $ccs->dims;
+  } else {
+    ($rowptr,$colids,$nzvals) = splice(@_,0,3);
+  }
 
   ##-- parse arguments into @pdls=($u,$s,$v), @dims=($m,$n,$d), @opts=(...)
-  my (@pdls,@dims,@opts);
-  foreach my $arg (@args) {
-    if (@pdls < 3 && UNIVERSAL::isa($arg,'PDL')) {
+  foreach my $arg (@_) {
+    if (@usv < 3 && UNIVERSAL::isa($arg,'PDL')) {
       ##-- output pdl
-      push(@pdls,$arg);
+      push(@usv,$arg);
     }
     elsif (@dims < 3 && ((UNIVERSAL::isa($arg,'PDL') && $arg->nelem==1) || !ref($arg))) {
       ##-- dimension argument
@@ -476,14 +486,14 @@ sub slepc_svd {
     }
   }
 
-  ##-- extrac -svd_nsv ($d) option
+  ##-- extract -svd_nsv ($d) option
   my $nsv = undef;
   foreach (0..($#opts-1)) {
     $nsv = $opts[$_+1] if ($opts[$_] eq '-svd_nsv');
   }
 
   ##-- extract arguments
-  my ($u,$s,$v) = @pdls;
+  my ($u,$s,$v) = @usv;
   my ($m,$n,$d) = @dims;
   $m = defined($v) && !$v->isempty ? $v->dim(1) : $rowptr->nelem-1  if (!defined($m));
   $n = defined($u) && !$u->isempty ? $u->dim(1) : $colids->max+1 if (!defined($n));
@@ -521,9 +531,16 @@ pp_def
 		qq(double [o]u(d,n);),
 		qq(double [o]s(d);),
 		qq(double [o]v(d,m);),
-		'',
+                '',
 	       ),
-   OtherPars => qq(int M=>m; int N=>n; int D=>d; IV optsArray;),
+   OtherPars => join("\n    ",
+                     '',
+                     q(int M=>m;),
+                     q(int N=>n;),
+                     q(int D=>d;),
+                     q(IV optsArray;),
+                     '',
+                    ),
    Code =>
 ('
   int argc;
@@ -627,8 +644,10 @@ pp_def
 '),
    Doc =>
 q(
-Guts for slepc_svd() with stricter calling conventions.
-The size parameters $m,$n, and $d and options array C<optsArray> are required.
+Guts for L<slepc_svd()|slepc_svd> with stricter calling conventions:
+The input matrix must be passed as a Harwell-Boeing triple
+C<($rowptr,$colids,$nzvals)>,
+and the size parameters C<M>, C<N>, and C<D> and options array C<optsArray> are all mandatory.
 ),
 
 );

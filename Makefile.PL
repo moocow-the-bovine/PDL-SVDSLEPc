@@ -45,6 +45,12 @@ sub MY::cflags {
   package MY;
   return shift->SUPER::cflags(@_) . <<EOF;
 
+##-- cache some important variables petsc/slepc might clobber
+## + slepc/petsc set GZIP=/bin/gzip, but that breaks EU::MM 'make dist' ("gzip.gz: permission denied")
+## + DESTDIR is used by EU::MM
+DESTDIR_SAVE := \${DESTDIR}
+GZIP_SAVE := \${GZIP}
+
 SLEPC_DIR = $::cconfig{SLEPC_DIR}
 PETSC_DIR = $::cconfig{PETSC_DIR}
 
@@ -54,7 +60,10 @@ SVDSLEPC_LDFLAGS  = $::cconfig{SVDSLEPC_LDFLAGS}
 
 #CCFLAGS_perl := \${CCFLAGS}
 include \$(SLEPC_DIR)/conf/slepc_variables
-GZIP :=
+
+##-- restore cached variables
+GZIP := \${GZIP_SAVE}
+DESTDIR := \${DESTDIR_SAVE}
 
 #CC = \$(PCC)
 #LD = \$(CLINKER)

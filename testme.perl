@@ -195,7 +195,7 @@ sub test_svd {
      svderrs("a-(u,s,v)",svdcompose($u,$s,$v),$a),
     );
 }
-test_svd(@ARGV); exit 0;
+#test_svd(@ARGV); exit 0;
 
 ##---------------------------------------------------------------------
 ## test: svd computation: transpose
@@ -212,7 +212,7 @@ sub test_svdx {
   my ($u0,$s0,$v0) = svdreduce(svd($ax),$dx);
   if (1) {
     print STDERR
-      ("builtin:\n",
+      ("builtin-x:\n",
        " + s0(".$s0->nelem.") = $s0\n",
        " + u0(".join(',',$u0->dims).") = $u0",
        " + v0(".join(',',$v0->dims).") = $v0");
@@ -223,7 +223,7 @@ sub test_svdx {
   if (1) {
     #print STDERR "a=$a; ptr=$ptr; colids=$colids; nzvals=$nzvals\n";
     print STDERR
-      ("slepc:\n",
+      ("slepc-x:\n",
        " + s(".$s->nelem.") = $s\n",
        " + u(".join(',',$u->dims).") = $u",
        " + v(".join(',',$v->dims).") = $v");
@@ -240,6 +240,43 @@ sub test_svdx {
     );
 }
 #test_svdx(@ARGV); exit 0;
+
+##---------------------------------------------------------------------
+## test: svd computation: ccs
+sub test_svd_ccs {
+  tdata();
+  print STDERR "data(m=".$a->dim(0).",n=".$a->dim(1)."); d=$d1\n";
+
+  my ($u0,$s0,$v0) = svdreduce(svd($a),$d1);
+  if (1) {
+    print STDERR
+      ("builtin:\n",
+       " + s0(".$s0->nelem.") = $s0\n",
+       " + u0(".join(',',$u0->dims).") = $u0",
+       " + v0(".join(',',$v0->dims).") = $v0");
+  }
+
+  ($u,$s,$v) = $a->toccs->slepc_svd($d1);
+  if (1) {
+    #print STDERR "a=$a; ptr=$ptr; colids=$colids; nzvals=$nzvals\n";
+    print STDERR
+      ("slepc-ccs:\n",
+       " + s(".$s->nelem.") = $s\n",
+       " + u(".join(',',$u->dims).") = $u",
+       " + v(".join(',',$v->dims).") = $v");
+  }
+
+  ##-- check errors
+  local $,='';
+  print STDERR
+    (svderrs("u0-u",$u0,$u),
+     svderrs("s0-s",$s0,$s),
+     svderrs("v0-v",$v0,$v),
+     svderrs("a-(u0,s0,v0)",svdcompose($u0,$s0,$v0),$a),
+     svderrs("a-(u,s,v)",svdcompose($u,$s,$v),$a),
+    );
+}
+test_svd_ccs(@ARGV); exit 0;
 
 ##---------------------------------------------------------------------
 ## test: wrapper
