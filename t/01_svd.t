@@ -3,7 +3,7 @@
 use Test::More tests=>37, todo=>[];
 
 $TEST_DIR = './t';
-use lib qw(../blib/lib ../blib/arch); $TEST_DIR = '.'; # for debugging
+#use lib qw(../blib/lib ../blib/arch); $TEST_DIR = '.'; # for debugging
 
 ##----------------------------------------------------------------------
 ## load modules

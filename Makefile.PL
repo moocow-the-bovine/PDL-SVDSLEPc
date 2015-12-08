@@ -26,7 +26,7 @@ $hash{CONFIGURE_REQUIRES} = {
 			    };
 $hash{BUILD_REQUIRES}{'Test::More'} = 0;
 
-push(@{$hash{TYPEMAPS}}, 'typemap');
+#push(@{$hash{TYPEMAPS}}, 'typemap');
 
 $hash{DIR} = [];
 $hash{VERSION_FROM} = 'svdslepc.pd';
@@ -54,6 +54,7 @@ SVDSLEPC_LDFLAGS  = $::cconfig{SVDSLEPC_LDFLAGS}
 
 #CCFLAGS_perl := \${CCFLAGS}
 include \$(SLEPC_DIR)/conf/slepc_variables
+GZIP :=
 
 #CC = \$(PCC)
 #LD = \$(CLINKER)

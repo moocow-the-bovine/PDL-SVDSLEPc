@@ -116,6 +116,12 @@ pp_addhdr(<<'EOH');
 #include <petscmat.h>
 #include <slepcsvd.h>
 
+#define SVDSLEPC_USE_DLOPEN
+#ifdef SVDSLEPC_USE_DLOPEN
+#include <dlfcn.h>
+void *svdslepc_libmpi_handle=NULL;
+#endif
+
 /*#define SVDSLEPC_DEBUG 1*/
 #ifdef SVDSLEPC_DEBUG
 # define SVDDEBUG(x) x
@@ -179,8 +185,26 @@ EOH
 ## Bootstrap code: MPI stuff
 
 pp_add_boot(<<'EOB');
+ #ifdef SVDSLEPC_USE_DLOPEN
+  //-- dlopen() openmpi library using RTLD_GLOBAL, to avoid 'unable to open' errors for plugins
+  svdslepc_libmpi_handle = dlopen("libmpi.so", RTLD_NOW | RTLD_GLOBAL);
+ #endif
   MPI_Init(0,NULL);
 EOB
+
+##--------------------------------------------------------------
+## Wrappers: END
+pp_addxs('',<<'EOXS');
+
+void
+_svdslepc_END()
+CODE:
+  MPI_Finalize();
+#ifdef SVDSLEPC_USE_DLOPEN
+  if (svdslepc_libmpi_handle != NULL) dlclose(svdslepc_libmpi_handle);
+#endif
+
+EOXS
 
 pp_addpm(<<'EOPM');
 END { _svdslepc_END(); }
@@ -318,17 +342,6 @@ CLEANUP:
   svdslepc_finish();
 
 ');
-
-##--------------------------------------------------------------
-## Wrappers: END
-pp_addxs('',<<'EOXS');
-
-void
-_svdslepc_END()
-CODE:
-  MPI_Finalize();
-
-EOXS
 
 
 ##======================================================================
@@ -542,7 +555,7 @@ pp_def
   } else {
     SVDDEBUG(fprintf(stderr, "setup input matrix (real)\n");fflush(stderr);)
     ierr = MatCreateSeqAIJWithArrays(MPI_COMM_WORLD, $SIZE(m),$SIZE(n), $P(rowptr),$P(colids),$P(nzvals), &A);CHKERRV(ierr);
-#ifdef SVDDEBUG
+#ifdef SVDSLEPC_DEBUG
     {
       PetscViewer view;
       ierr = PetscViewerBinaryOpen(PETSC_COMM_SELF,"svddebug.petsc",FILE_MODE_WRITE,&view);CHKERRV(ierr);
