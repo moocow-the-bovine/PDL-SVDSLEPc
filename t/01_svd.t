@@ -1,6 +1,6 @@
 # -*- Mode: CPerl -*-
 # t/01_svd.t: test SLEPc svd
-use Test::More tests=>4, todo=>[];
+use Test::More tests=>8, todo=>[];
 
 $TEST_DIR = './t';
 #use lib qw(../blib/lib ../blib/arch); $TEST_DIR = '.'; # for debugging
@@ -26,6 +26,9 @@ $nzvals=pdl(double,[10,3,3,9,7,8,4,8,8,7,7,9,-2,5,9,2,3,13,-1,1,1,1]);
 
 
 ##-- common subs
+sub min2 {
+  return $_[0]<$_[1] ? $_[0] : $_[1];
+}
 sub svdreduce {
   my ($u,$s,$v, $d) = @_;
   $d = $s->dim(0) if (!defined($d) || $d > $s->dim(0));
@@ -45,25 +48,38 @@ sub svdwanterr {
   my ($a,$u,$s,$v) = @_;
   return (($a-svdcompose($u,$s,$v))**2)->flat->sumover;
 }
+sub svdtest {
+  my ($label, $u,$s,$v, $eps_s,$eps_v) = @_;
+  my $ns = $s->nelem;
+  $eps_s = .01    if (!defined($eps_s));
+  $eps_v = $eps_s if (!defined($eps_v));
+  ok( all($s->approx($s_want->slice("0:".($ns-1)),$eps_s)), "${label} - s [eps=$eps_s]" );
+  ok( all(svdcompose($u,$s,$v)->approx($a,$eps_v)), "${label} - vals [eps=$eps_v]" );
+}
 
 ##-- $d==$n: expect
-$d  = $n < $m ? $n : $m;
+$d  = min2($n,$m);
 $d1 = $d-1;
 
 $s_want = pdl(double,
 	      [23.3228474410401, 12.9401616781924, 10.9945440916999, 9.08839598479767, 3.84528764361343, 1.1540470359863, 0]);
-$s1_want = $s_want->slice("0:".($d1-1));
 
-##-- test 1..2 : builtin svd
-($u,$s,$v) = svd($a);
-($u,$s,$v) = svdreduce($u,$s,$v, $d);
-ok( all($s->approx($s_want->slice("0:".($d-1)),.01)), "svd,d=$d:s" );
-ok( all(svdcompose($u,$s,$v)->approx($a,.01)), "svd,d=$d:vals" );
+##-- test 1..2 : builtin svd, d=min{m,n}
+($u,$s,$v) = svdreduce(svd($a),$d);
+svdtest("PDL::svd - d=min{m,n}", $u,$s,$v, .01);
 
-##-- test 3..4 : _slepc_svd_crs()
+##-- test 3..4 : builtin svd, d<min{m,n}
+($u,$s,$v) = svdreduce(svd($a),$d1);
+svdtest("PDL::svd - d<min{m,n}", $u,$s,$v, .01,.5);
+
+##-- test 5..6 : _slepc_svd_crs(), d=min{m,n}
 _slepc_svd_crs($ptr,$colids,$nzvals, $u=zeroes($d,$m),$s=zeroes($d),$v=zeroes($d,$n), []);
-ok( all($s->approx($s_want->slice("0:".($d-1)),.5)), "_slepc_svd_crs,d=$d:s" );
-ok( all(svdcompose($u,$s,$v)->approx($a,.5)), "_slepc_svd_crs,d=$d:vals" );
+svdtest("_slepc_svd_crs - d=min{m,n}", $u,$s,$v, .01,.01);
+
+
+##-- test 7..8 : _slepc_svd_crs(), d<{m,n}
+_slepc_svd_crs($ptr,$colids,$nzvals, $u=zeroes($d,$m),$s=zeroes($d),$v=zeroes($d,$n), []);
+svdtest("_slepc_svd_crs - d<min{m,n}", $u,$s,$v, .01,.5);
 
 
 # end of t/01_svd.t

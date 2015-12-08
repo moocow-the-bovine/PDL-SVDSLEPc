@@ -23,7 +23,7 @@ if ($cconfig{PETSC_USE_64BIT_INDICES}) {
     $INDX   = 'indx';
     $INDX_P = 'indx';
     $INDX_C = 'PDL_Indx';
-  } else {
+ } else {
     $INDX   = 'longlong';
     $INDX_P = 'longlong';
     $INDX_C = 'PDL_LongLong';
@@ -105,7 +105,7 @@ pp_addhdr(<<'EOH');
 #include <petscmat.h>
 #include <slepcsvd.h>
 
-#define SVDSLEPC_DEBUG 1
+/*#define SVDSLEPC_DEBUG 1*/
 #ifdef SVDSLEPC_DEBUG
 # define SVDDEBUG(x) x
 #else
@@ -133,33 +133,47 @@ void svdslepc_init(int argc, const char **argv, const char *help)
  * + passing in char *args gives garbage for all but the 1st element if we NUL-terminate on the perl side
  * + if we \n-terminate, we need to duplicate *args
  */
-void svdslepc_init_func(const char *func, AV *args, const char *help)
+void svdslepc_init_func(const char *func, AV *args, const char *help, int *pargc, const char ***pargv)
 {
-  int i,ai, nopts=1+av_len(args);
-  const char **argv;
+  int ai, nopts=1+av_len(args);
 
   //-- allocate argv
-  argv = (const char**)malloc((1+nopts)*sizeof(char*));
-  argv[0] = func;
-  SVDDEBUG(fprintf(stderr,"init_func: argv[0/%d] = %s\n", nopts, argv[0]);)
+  *pargc = 1+nopts;
+  *pargv = (const char**)malloc((*pargc)*sizeof(char*));
+  (*pargv)[0] = func;
+  SVDDEBUG(fprintf(stderr,"init_func: argv[0/%d] = %s\n", nopts, (*pargv)[0]);)
   for (ai=0; ai < nopts; ++ai) {
-    argv[ai+1] = SvPV_nolen(*av_fetch(args, ai, 0));
-    SVDDEBUG(fprintf(stderr,"init_func: argv[%d/%d] = %s\n", ai+1, nopts, argv[ai+1]);)
+    (*pargv)[ai+1] = SvPV_nolen(*av_fetch(args, ai, 0));
+    SVDDEBUG(fprintf(stderr,"init_func: argv[%d/%d] = %s\n", ai+1, nopts, (*pargv)[ai+1]);)
   }
 
   //-- call underlying init function
-  svdslepc_init(2+nopts, argv, help);
-
-  //-- cleanup
-  if (argv) free(argv);
+  svdslepc_init(*pargc, *pargv, help);
 }
 
-void svdslepc_finish(void)
+void svdslepc_finish()
 {
   SlepcFinalize();
 }
 
+void svdslepc_finish_func(int argc, const char **argv)
+{
+  svdslepc_finish();
+  if (argv) free(argv);
+}
+
 EOH
+
+##======================================================================
+## Bootstrap code: MPI stuff
+
+pp_add_boot(<<'EOB');
+  MPI_Init(0,NULL);
+EOB
+
+pp_addpm(<<'EOPM');
+END { _svdslepc_END(); }
+EOPM
 
 ##======================================================================
 ## PDL::PP Wrappers
@@ -268,6 +282,8 @@ pp_addpm(<<'EOPM');
 =head2 PDL::SVDSLEPc::MPI_Comm_size()
 
 Returns the number of MPI processes available.
+Using multiple MPI processes with mpiexec behaves strangely with perl at the moment,
+so this should generally return 1.
 
 =cut
 
@@ -291,6 +307,17 @@ CLEANUP:
   svdslepc_finish();
 
 ');
+
+##--------------------------------------------------------------
+## Wrappers: END
+pp_addxs('',<<'EOXS');
+
+void
+_svdslepc_END()
+CODE:
+  MPI_Finalize();
+
+EOXS
 
 
 ##======================================================================
@@ -357,6 +384,8 @@ pp_def
    OtherPars => qq(IV optsArray;),
    Code =>
 ('
+  int argc;
+  const char **argv;
   PetscErrorCode ierr;
   PetscBool      flg_help, flg_nsv,flg_ncv,flg_mpd;
   PetscInt       i, nsv,ncv,mpd; //-- svd params
@@ -365,15 +394,37 @@ pp_def
   Vec uvec,vvec;
   PetscReal sigma;
 
+  SVDDEBUG(fprintf(stderr,"sizeof(PetscInt)=%d; sizeof($INDX='.$INDX.')=%d; sizeof(PetscScalar)=%d; sizeof(double)=%d\n", sizeof(PetscInt), sizeof($GENERIC(rowptr)), sizeof(PetscScalar), sizeof(double));fflush(stderr);)
+
   //-- initialize
-  SVDDEBUG(fprintf(stderr, "init (m=%d, n=%d, nnz=%d, d=%d)\n", $SIZE(m), $SIZE(n), $SIZE(nnz), $SIZE(d));fflush(stderr);)
-  svdslepc_init_func("PDL::SVDSLEPc::_slepc_svd_crs",INT2PTR(AV*, $COMP(optsArray)),NULL);
+  SVDDEBUG(fprintf(stderr, "_slepc_svd_crs:init (m=%d, n=%d, nnz=%d, d=%d)\n", $SIZE(m), $SIZE(n), $SIZE(nnz), $SIZE(d));fflush(stderr);)
+  svdslepc_init_func("PDL::SVDSLEPc::_slepc_svd_crs",INT2PTR(AV*, $COMP(optsArray)),NULL, &argc,&argv);
   ierr = PetscOptionsHasName(NULL,"-help",&flg_help);CHKERRV(ierr);
-  if (flg_help) return;
+
+  //-- setup (dummy) input matrix
+  if ($SIZE(nnz)==0) {
+    SVDDEBUG(fprintf(stderr, "setup input matrix (dummy)\n");fflush(stderr);)
+    ierr = MatCreateSeqAIJFromTriple(MPI_COMM_WORLD, 1,1, NULL,NULL,NULL, &A,0,PETSC_FALSE);CHKERRV(ierr);
+    loop(d) %{
+      $s() = 0;
+      loop(m) %{ $u() = 0; %}
+      loop(n) %{ $v() = 0; %}
+    %}
+  } else {
+    SVDDEBUG(fprintf(stderr, "setup input matrix (real)\n");fflush(stderr);)
+    ierr = MatCreateSeqAIJWithArrays(MPI_COMM_WORLD, $SIZE(n),$SIZE(m), $P(rowptr),$P(colids),$P(nzvals), &A);CHKERRV(ierr);
+#ifdef SVDDEBUG
+    {
+      PetscViewer view;
+      ierr = PetscViewerBinaryOpen(PETSC_COMM_SELF,"svddebug.petsc",FILE_MODE_WRITE,&view);CHKERRV(ierr);
+      ierr = MatView(A,view);CHKERRV(ierr);
+      ierr = PetscViewerDestroy(&view);CHKERRV(ierr);
+    }
+#endif
+  }
 
   //-- setup svd
-  SVDDEBUG(fprintf(stderr, "setup svd\n");fflush(stderr);)
-  ierr = MatCreateSeqAIJWithArrays(MPI_COMM_WORLD, $SIZE(m),$SIZE(n), $P(rowptr),$P(colids),$P(nzvals), &A);CHKERRV(ierr);
+  SVDDEBUG(fprintf(stderr, "setup svd object\n");fflush(stderr);)
   ierr = SVDCreate(PETSC_COMM_WORLD,&svd);CHKERRV(ierr);
   ierr = SVDSetOperator(svd,A);CHKERRV(ierr);
   ierr = SVDSetFromOptions(svd);CHKERRV(ierr);
@@ -400,6 +451,15 @@ pp_def
   SVDDEBUG(fprintf(stderr, "get output data (m=%d, n=%d, d=%d)\n", $SIZE(m), $SIZE(n), $SIZE(d));fflush(stderr);)
   //ierr = MatCreateVecs(A,&u,&v);CHKERRV(ierr);    //-- documented in petsc-3.6.2, does NOT exist in 3.4.2 (debian wheezy)
   ierr = MatGetVecs(A,&uvec,&vvec);CHKERRV(ierr);
+#ifdef SVDSLEPC_DEBUG
+  {
+    PetscInt nu,nv;
+    ierr = VecGetSize(uvec,&nu);CHKERRV(ierr);
+    ierr = VecGetSize(vvec,&nv);CHKERRV(ierr);
+    fprintf(stderr,"got uvec(%d~m=%d), vvec(%d~n=%d), d=%d\n", nu,$SIZE(m), nv,$SIZE(n), $SIZE(d));fflush(stderr);
+  }
+#endif
+
   for (i=0; i < nsv; ++i) {
     PetscScalar *uvals,*vvals;
     ierr = SVDGetSingularTriplet(svd,i,&sigma,vvec,uvec);CHKERRV(ierr);
@@ -421,11 +481,44 @@ pp_def
   ierr = VecDestroy(&vvec);CHKERRV(ierr);
   ierr = SVDDestroy(&svd);CHKERRV(ierr);
   ierr = MatDestroy(&A);CHKERRV(ierr);
-  svdslepc_finish();
+  svdslepc_finish_func(argc,argv);
 '),
    Doc =>
 q(
-TODO
+
+Compute the (truncated) singular value decomposition of a sparse matrix
+using a L<SLEPc SVD solver|http://slepc.upv.es/documentation/current/docs/manualpages/SVD/>.
+The sparse input matrix with $m() logical rows and $n() logical columns
+is passed in encoded in Harwell-Boeing sparse format in the input parameters $rowptr(), $colids(),
+and $nzvals().  See L<PDL::CCS> for a way to acquire these parameters
+from a dense input matrix, but note that for this function, the
+row-pointer $rowptr() is of size ($m+1)
+for a dense matrix $a with $m rows,
+where $ptr($m)==$nnz is the total number of nonzero
+values in $a.
+
+The left singular components are returned in the matrix $u(),
+the singular values themselved in the vector $s(), and the
+right singular components in the matrix $v().  Note that
+$u() and $v() must be specified explicitly
+in the call, so that the degree of reduction (the size parameter $d)
+can be determined.  If $d==min($m,$n), then a full decomposition
+will be computed, and on return, $u() and $v() should be
+variants (up to sign and specified error tolerance)
+of the matrices returned by L<PDL::MatrixOps::svd()|PDL::MatrixOps::svd>.
+
+Additional options to the underlying SLEPc and PETSc code can be passed
+command-line style in the ARRAY-ref C<optsArray>; see the output of
+L<slepc_svd_help()|slepc_svd_help> for a list of available options.
+For exammple, in order to compute the SVD using the Thick-restart Lanczos method with at
+most 128 iterations and a tolerance of 1e-5, you could call:
+
+ _slepc_svd_crs($rowptr,$colids,$nzvals, $u,$s,$v, [qw(-svd_max_it 128 -svd_tol 1e-5)]);
+
+... but note that the number of singular values to be computed is determined
+by the PDL size parameter $d, clobbering any value specified by the option
+parmeter C<-svd_nsv>.
+
 ),
 );
 

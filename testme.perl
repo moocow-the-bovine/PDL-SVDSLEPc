@@ -4,6 +4,7 @@ use lib qw(./blib/lib ./blib/arch);
 use PDL;
 use PDL::SVDSLEPc;
 use PDL::CCS;
+use PDL::CCS::IO::PETSc;
 use PDL::MatrixOps;
 
 use Benchmark qw(timethese cmpthese);
@@ -17,7 +18,7 @@ BEGIN{
 
 ##---------------------------------------------------------------------
 ## test: data
-use vars qw($p $whichi $whichv $ptr $colids $nzvals $a $m $n $d);
+use vars qw($p $whichi $whichv $ptr $colids $nzvals $a $m $n $d $d1);
 sub tdata {
   $p = $a = pdl(double, [
 			 [10,0,0,0,-2,0,0],
@@ -57,6 +58,7 @@ sub udata {
   ($n,$m) = $p->dims;
   $d      = pdl(long,[$p->dims])->min;
   #$d = $n;
+  $d1     = $d-1;
   ##
   ##-- ccs encode
   ($ptr,$colids,$nzvals) = ccsencode($p);
@@ -70,6 +72,10 @@ sub udata {
   ##-- HACK: allocate an extra slot in $ptr
   $ptr->reshape($ptr->nelem+1);
   $ptr->set(-1, $colids->nelem);
+
+  ##-- DEBUG: save petsc matrix
+  #$a->toccs->wpetsc("a.petsc");
+  #$a->toccs->xchg(0,1)->make_physically_indexed->wpetsc("at.petsc");
 }
 
 ##-- common subs
@@ -135,18 +141,45 @@ sub test_opts {
 
 ##---------------------------------------------------------------------
 ## test: svd computation
+sub svderrs {
+  my ($label,$x,$y) = @_;
+  my $e = ($x->flat->abs-$y->flat->abs)->abs;
+  return sprintf("absolute error: %--16s (min/max/avg) = %8.2g / %8.2g / %8.2g\n", $label, $e->minmax, $e->avg);
+}
 sub test_svd {
   tdata();
-  my $u = zeroes($d,$m);
-  my $s = zeroes($d);
-  my $v = zeroes($d,$n);
-  my @opts = (@_);
-  _slepc_svd_crs($ptr,$colids,$nzvals, $u,$s,$v, \@opts);
-  print STDERR "sigma = ", $s, "\n";
+  my ($u0,$s0,$v0) = svdreduce(svd($a),$d1);
+  print STDERR
+    ("builtin:\n",
+     " + s0 = $s0\n",
+     " + u0(".join(',',$u0->dims).") = $u0",
+     " + v0(".join(',',$v0->dims).") = $v0");
 
-  my ($u0,$s0,$v0) = svd($a);
+  my $u = zeroes($d1,$m);
+  my $s = zeroes($d1);
+  my $v = zeroes($d1,$n);
+  my @opts = (@_);
+  print STDERR "a=$a; ptr=$ptr; colids=$colids; nzvals=$nzvals\n";
+  _slepc_svd_crs($ptr,$colids,$nzvals, $u,$s,$v, \@opts);
+  print STDERR
+    ("slepc:\n",
+     " + s = $s\n",
+     " + u(".join(',',$u->dims).") = $u",
+     " + v(".join(',',$v->dims).") = $v");
+
+  ##-- check errors
+  local $,='';
+  print STDERR
+    (svderrs("u0-u",$u0,$u),
+     svderrs("s0-s",$s0,$s),
+     svderrs("v0-v",$v0,$v),
+     svderrs("a-(u0,s0,v0)",svdcompose($u0,$s0,$v0),$a),
+     svderrs("a-(u,s,v)",svdcompose($u,$s,$v),$a),
+    );
 }
 test_svd(@ARGV); exit 0;
+
+## TODO: fix dims: looks like we've swapped u,v
 
 
 ##---------------------------------------------------------------------
