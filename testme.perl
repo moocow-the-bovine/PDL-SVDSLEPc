@@ -55,7 +55,7 @@ sub gendatag {
 
 ##-- update cccs on changed $p
 sub udata {
-  ($n,$m) = $p->dims;
+  ($m,$n) = $p->dims;
   $d      = pdl(long,[$p->dims])->min;
   #$d = $n;
   $d1     = $d-1;
@@ -117,14 +117,29 @@ sub test_const {
 ## test: svd help
 sub test_help {
   local $,= '';
-  print "slepc_svd_help():\n"; slepc_svd_help();
 
-  ##-- redirect to stderr (ugly, but works)
+  print "slepc_svd_help():\n"; slepc_svd_help();
+  #_slepc_svd_int(null,null,null, null,null,null, 0,0,0,['-help']);
+
+  ##-- redirect stderr (ugly, but works)
   if (0) {
+    my ($buf);
     open(my $oldout, '>&STDOUT');
-    open(STDOUT, ">&STDERR");
+    open(STDOUT, ">&STDERR")
+      or die("$0: failed to redirect STDOUT to STDERR: $!");
     slepc_svd_help();
     *STDOUT = *$oldout;
+  }
+
+  ##-- redirect string (?)
+  if (0) {
+    my ($buf);
+    open(my $oldout, '>&STDOUT');
+    open(my $bufh, ">", \$buf)
+      or die("$0: failed to open string-buffer handle: $!");
+    slepc_svd_help();
+    *STDOUT = *$oldout;
+    print "help = $buf";
   }
 }
 #test_help; exit 0;
@@ -136,7 +151,7 @@ sub test_opts {
   my $s = zeroes($d);
   my $v = zeroes($d,$n);
   my @opts = qw(-svd_nsv 4 -help);
-  _slepc_svd_crs($ptr,$colids,$nzvals, $u,$s,$v, \@opts);
+  _slepc_svd_int($ptr,$colids,$nzvals, $u,$s,$v, $m,$n,$d,\@opts);
 }
 #test_opts; exit 0;
 
@@ -160,11 +175,7 @@ sub test_svd {
        " + v0(".join(',',$v0->dims).") = $v0");
   }
 
-  my $u = zeroes($d1,$m);
-  my $s = zeroes($d1);
-  my $v = zeroes($d1,$n);
-  my @opts = (@_);
-  _slepc_svd_crs($ptr,$colids,$nzvals, $u,$s,$v, \@opts);
+  ($u,$s,$v) = _slepc_svd_int($ptr,$colids,$nzvals, $m,$n,$d1,[@_]);
   if (1) {
     #print STDERR "a=$a; ptr=$ptr; colids=$colids; nzvals=$nzvals\n";
     print STDERR
@@ -184,7 +195,7 @@ sub test_svd {
      svderrs("a-(u,s,v)",svdcompose($u,$s,$v),$a),
     );
 }
-#test_svd(@ARGV); exit 0;
+test_svd(@ARGV); exit 0;
 
 ##---------------------------------------------------------------------
 ## test: svd computation: transpose
@@ -199,7 +210,7 @@ sub test_svdx {
   print STDERR "xdata(xm=".$ax->dim(0).",xn=".$ax->dim(1)."); d=$dx\n";
 
   my ($u0,$s0,$v0) = svdreduce(svd($ax),$dx);
-  if (0) {
+  if (1) {
     print STDERR
       ("builtin:\n",
        " + s0(".$s0->nelem.") = $s0\n",
@@ -208,12 +219,8 @@ sub test_svdx {
   }
   #exit 0;
 
-  my $u = zeroes($dx,$ax->dim(1));
-  my $s = zeroes($dx);
-  my $v = zeroes($dx,$ax->dim(0));
-  my @opts = (@_);
-  _slepc_svd_crs($xptr,$xcolids,$xvals, $u,$s,$v, \@opts);
-  if (0) {
+  ($u,$s,$v) = _slepc_svd_int($xptr,$xcolids,$xvals, $n,$m,$dx,[@_]);
+  if (1) {
     #print STDERR "a=$a; ptr=$ptr; colids=$colids; nzvals=$nzvals\n";
     print STDERR
       ("slepc:\n",
@@ -228,11 +235,107 @@ sub test_svdx {
     (svderrs("u0-u",$u0,$u),
      svderrs("s0-s",$s0,$s),
      svderrs("v0-v",$v0,$v),
-     svderrs("a-(u0,s0,v0)",svdcompose($u0,$s0,$v0),$a->xchg(0,1)),
-     svderrs("a-(u,s,v)",svdcompose($u,$s,$v),$a->xchg(0,1)),
+     svderrs("a-(u0,s0,v0)",svdcompose($u0,$s0,$v0),$ax),
+     svderrs("a-(u,s,v)",svdcompose($u,$s,$v),$ax),
     );
 }
-test_svdx(@ARGV); exit 0;
+#test_svdx(@ARGV); exit 0;
+
+##---------------------------------------------------------------------
+## test: wrapper
+
+#BEGIN { *PDL::SVDSLEPc::slepc_svd = *PDL::slepc_svd = \&slepc_svd; }
+sub slepc_svd0 {
+  my ($rowptr,$colids,$nzvals, @args) = @_;
+
+  ##-- parse arguments into @pdls=($u,$s,$v), @dims=($m,$n,$d), @opts=(...)
+  my (@pdls,@dims,@opts);
+  foreach my $arg (@args) {
+    if (@pdls < 3 && UNIVERSAL::isa($arg,'PDL')) {
+      ##-- output pdl
+      push(@pdls,$arg);
+    }
+    elsif (@dims < 3 && ((UNIVERSAL::isa($arg,'PDL') && $arg->nelem==1) || !ref($arg))) {
+      ##-- dimension argument
+      push(@dims, UNIVERSAL::isa($arg,'PDL') ? $arg->sclr : $arg);
+    }
+    elsif (UNIVERSAL::isa($arg,'ARRAY')) {
+      ##-- option array
+      push(@opts,@$arg);
+    }
+    elsif (UNIVERSAL::isa($arg,'HASH')) {
+      ##-- option hash: pass boolean flags as ("-FLAG"=>undef), e.g. "-svd_view"=>undef
+      push(@opts, map {((/^\-/ ? $_ : "-$_"),(defined($arg->{$_}) ? $arg->{$_} : qw()))} keys %$arg);
+    }
+    else {
+      ##-- extra parameter: warn
+      warn(__PACKAGE__ . "::slepc_svd(): ignoring extra parameter '$arg'");
+    }
+  }
+
+  ##-- extrac -svd_nsv ($d) option
+  my $nsv = undef;
+  foreach (0..($#opts-1)) {
+    $nsv = $opts[$_+1] if ($opts[$_] eq '-svd_nsv');
+  }
+
+  ##-- extract arguments
+  my ($u,$s,$v) = @pdls;
+  my ($m,$n,$d) = @dims;
+  $m = defined($v) && !$v->isempty ? $v->dim(1) : $rowptr->nelem-1  if (!defined($m));
+  $n = defined($u) && !$u->isempty ? $u->dim(1) : $colids->max+1 if (!defined($n));
+  $d = (defined($u) && !$u->isempty ? $u->dim(0)
+	: (defined($s) && !$s->isempty ? $s->dim(0)
+	   : (defined($v) && !$v->isempty ? $v->dim(0)
+	      : (defined($nsv) ? $nsv
+		 : $m < $n ? $m : $n))))
+    if (!defined($d));
+
+  ##-- create output piddles
+  $u = zeroes(double, $d,$n) if (!defined($u) || $u->isempty);
+  $s = zeroes(double, $d)    if (!defined($s) || $s->isempty);
+  $v = zeroes(double, $d,$m) if (!defined($v) || $v->isempty);
+
+  ##-- call guts
+  _slepc_svd_int($rowptr,$colids,$nzvals, $u,$s,$v, $m,$n,$d, \@opts);
+  return ($u,$s,$v);
+}
+
+our ($u0,$s0,$v0);
+sub test_svd_wrap {
+  tdata();
+  print STDERR "data(m=".$a->dim(0).",n=".$a->dim(1)."); d=$d1\n";
+
+  ($u0,$s0,$v0) = svdreduce(svd($a),$d1);
+  if (1) {
+    print STDERR
+      ("builtin:\n",
+       " + s0(".$s0->nelem.") = $s0\n",
+       " + u0(".join(',',$u0->dims).") = $u0",
+       " + v0(".join(',',$v0->dims).") = $v0");
+  }
+
+  ($u,$s,$v) = slepc_svd($ptr,$colids,$nzvals, [@_,'-svd_nsv'=>$d1]);
+  if (1) {
+    #print STDERR "a=$a; ptr=$ptr; colids=$colids; nzvals=$nzvals\n";
+    print STDERR
+      ("slepc:\n",
+       " + s(".$s->nelem.") = $s\n",
+       " + u(".join(',',$u->dims).") = $u",
+       " + v(".join(',',$v->dims).") = $v");
+  }
+
+  ##-- check errors
+  local $,='';
+  print STDERR
+    (svderrs("u0-u",$u0,$u),
+     svderrs("s0-s",$s0,$s),
+     svderrs("v0-v",$v0,$v),
+     svderrs("a-(u0,s0,v0)",svdcompose($u0,$s0,$v0),$a),
+     svderrs("a-(u,s,v)",svdcompose($u,$s,$v),$a),
+    );
+}
+#test_svd_wrap(@ARGV); exit 0;
 
 
 ##---------------------------------------------------------------------

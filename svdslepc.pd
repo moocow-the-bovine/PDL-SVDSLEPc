@@ -36,8 +36,18 @@ if ($cconfig{PETSC_USE_64BIT_INDICES}) {
 
 
 ##------------------------------------------------------
+## Header: packages
+pp_addpm({At=>'Top'},<<'EOPM');
+
+use Carp qw(confess);
+use strict;
+
+EOPM
+
+##------------------------------------------------------
 ## Header: pods
 pp_addpm({At=>'Top'},<<'EOPM');
+
 =pod
 
 =head1 NAME
@@ -78,6 +88,7 @@ PDL::SVDSLEPc - PDL interface to SLEPc sparse singular value decomposition
  ##---------------------------------------------------------------------
  ## Singular Value Decomposition [TODO]
  ##---------------------------------------------------------------------
+ print slepc_svd_help();     ##-- show available parameters
  svdlas2d($a, $maxiters, $end, $kappa, $ut, $s, $vt);
 
 =head1 DESCRIPTION
@@ -347,41 +358,159 @@ pp_addpm(<<'EOPM');
 
 =head2 slepc_svd_help
 
-=for sig
-
- Signature: ()
-
 Prints a help message with all supported SLEPc SVD options to STDOUT.
 Really just a wrapper for
 
- _slepc_svd_crs(null,null,null, null,null,null, ['-help']);
+ slepc_svd(null,null,null, 0,0,0, ['-help']);
 
 =cut
 
 sub slepc_svd_help {
-  _slepc_svd_crs(null,null,null, null,null,null, ['-help']);
+  slepc_svd(null,null,null, 0,0,0, ['-help']);
+}
+
+EOPM
+
+##------------------------------------------------------
+## slepc_svd_help() : help string for svd routine
+
+pp_add_exported('','slepc_svd');
+pp_addpm(<<"EOPM");
+
+=pod
+
+=head2 slepc_svd
+
+=for sig
+
+  Signature: (
+	      $INDX  rowptr(mplus1);
+	      $INDX  colids(nnz);
+	      double nzvals(nnz);
+	      double [o]u(d,n);
+	      double [o]s(d);
+	      double [o]v(d,m);
+              int    M=>d;
+              int    N=>n;
+              int    D=>d;
+              \@options;
+             )
+EOPM
+pp_addpm(<<'EOPM');
+
+Compute the (truncated) singular value decomposition of a sparse matrix
+using a L<SLEPc SVD solver|http://slepc.upv.es/documentation/current/docs/manualpages/SVD/>.
+The sparse input matrix with logical (row-primary) dimensions ($m,$n)
+is passed in encoded in Harwell-Boeing sparse format in the input parameters
+$rowptr(), $colids(), and $nzvals().  See L<PDL::CCS> for a way to acquire these parameters
+from a dense input matrix, but note that for this function, the
+row-pointer $rowptr() is of size ($m+1)
+for a dense matrix $a with $m rows,
+where $rowptr($m)==$nnz is the total number of nonzero
+values in $a.
+
+The left singular components are returned in the matrix $u(),
+the singular values themselved in the vector $s(), and the
+right singular components in the matrix $v().
+These output piddles, as well as the
+logical dimensions ($m,$n) of the input matrix and the
+size $d of the truncated SVD to be computed may be specified explicitly in the call,
+but otherwise will be estimated from $rowptr(), $colids(), and/or \@options.
+If $d==min($m,$n) [the default], then a full decomposition
+will be computed, and on return, $u() and $v() should be
+variants (up to sign and specified error tolerance)
+of the matrices returned by L<PDL::MatrixOps::svd()|PDL::MatrixOps::svd>.
+
+Additional options to the underlying SLEPc and PETSc code can be passed
+command-line style in the ARRAY-ref C<\@options>; see the output of
+L<slepc_svd_help()|slepc_svd_help> for a list of available options.
+In particular, the option C<-svd_nsv> can be used to specify the
+number of singular values to be returned ($d) if you choose to omit
+both the $d paramter and nontrivial output piddles.
+For example, in order to compute a truncated SVD using with 32 singular values using
+the Thick-restart Lanczos method with at
+most 128 iterations and a tolerance of 1e-5, you could call:
+
+ ($u,$s,$v) = slepc_svd($rowptr,$colids,$nzvals, [qw(-svd_nsv 32 -svd_max_it 128 -svd_tol 1e-5)]);
+
+=cut
+
+sub slepc_svd {
+  my ($rowptr,$colids,$nzvals, @args) = @_;
+
+  ##-- parse arguments into @pdls=($u,$s,$v), @dims=($m,$n,$d), @opts=(...)
+  my (@pdls,@dims,@opts);
+  foreach my $arg (@args) {
+    if (@pdls < 3 && UNIVERSAL::isa($arg,'PDL')) {
+      ##-- output pdl
+      push(@pdls,$arg);
+    }
+    elsif (@dims < 3 && ((UNIVERSAL::isa($arg,'PDL') && $arg->nelem==1) || !ref($arg))) {
+      ##-- dimension argument
+      push(@dims, UNIVERSAL::isa($arg,'PDL') ? $arg->sclr : $arg);
+    }
+    elsif (UNIVERSAL::isa($arg,'ARRAY')) {
+      ##-- option array
+      push(@opts,@$arg);
+    }
+    elsif (UNIVERSAL::isa($arg,'HASH')) {
+      ##-- option hash: pass boolean flags as ("-FLAG"=>undef), e.g. "-svd_view"=>undef
+      push(@opts, map {((/^\-/ ? $_ : "-$_"),(defined($arg->{$_}) ? $arg->{$_} : qw()))} keys %$arg);
+    }
+    else {
+      ##-- extra parameter: warn
+      warn(__PACKAGE__ . "::slepc_svd(): ignoring extra parameter '$arg'");
+    }
+  }
+
+  ##-- extrac -svd_nsv ($d) option
+  my $nsv = undef;
+  foreach (0..($#opts-1)) {
+    $nsv = $opts[$_+1] if ($opts[$_] eq '-svd_nsv');
+  }
+
+  ##-- extract arguments
+  my ($u,$s,$v) = @pdls;
+  my ($m,$n,$d) = @dims;
+  $m = defined($v) && !$v->isempty ? $v->dim(1) : $rowptr->nelem-1  if (!defined($m));
+  $n = defined($u) && !$u->isempty ? $u->dim(1) : $colids->max+1 if (!defined($n));
+  $d = (defined($u) && !$u->isempty ? $u->dim(0)
+	: (defined($s) && !$s->isempty ? $s->dim(0)
+	   : (defined($v) && !$v->isempty ? $v->dim(0)
+	      : (defined($nsv) ? $nsv
+		 : $m < $n ? $m : $n))))
+    if (!defined($d));
+
+  ##-- create output piddles
+  $u = zeroes(double, $d,$n) if (!defined($u) || $u->isempty);
+  $s = zeroes(double, $d)    if (!defined($s) || $s->isempty);
+  $v = zeroes(double, $d,$m) if (!defined($v) || $v->isempty);
+
+  ##-- call guts
+  _slepc_svd_int($rowptr,$colids,$nzvals, $u,$s,$v, $m,$n,$d, \@opts);
+  return ($u,$s,$v);
 }
 
 EOPM
 
 
 ##------------------------------------------------------
-## slepc_svd_crs() : svd with native compressed row storage representation (no memory bloat)
+## _slepc_svd_int() : guts
 
-pp_add_exported('','_slepc_svd_crs');
+pp_add_exported('','_slepc_svd_int');
 pp_def
-  ('_slepc_svd_crs',
+  ('_slepc_svd_int',
    Pars => join("\n    ",
 		'',
 		qq($INDX  rowptr(mplus1);),
 		qq($INDX  colids(nnz);),
 		qq(double nzvals(nnz);),
-		qq( u(d,m);),
-		qq( s(d);),
-		qq( v(d,n);),
+		qq(double [o]u(d,n);),
+		qq(double [o]s(d);),
+		qq(double [o]v(d,m);),
 		'',
 	       ),
-   OtherPars => qq(IV optsArray;),
+   OtherPars => qq(int M=>m; int N=>n; int D=>d; IV optsArray;),
    Code =>
 ('
   int argc;
@@ -397,8 +526,8 @@ pp_def
   SVDDEBUG(fprintf(stderr,"sizeof(PetscInt)=%d; sizeof($INDX='.$INDX.')=%d; sizeof(PetscScalar)=%d; sizeof(double)=%d\n", sizeof(PetscInt), sizeof($GENERIC(rowptr)), sizeof(PetscScalar), sizeof(double));fflush(stderr);)
 
   //-- initialize
-  SVDDEBUG(fprintf(stderr, "_slepc_svd_crs:init (m=%d, n=%d, nnz=%d, d=%d)\n", $SIZE(m), $SIZE(n), $SIZE(nnz), $SIZE(d));fflush(stderr);)
-  svdslepc_init_func("PDL::SVDSLEPc::_slepc_svd_crs",INT2PTR(AV*, $COMP(optsArray)),NULL, &argc,&argv);
+  SVDDEBUG(fprintf(stderr, "_slepc_svd_int:init (m=%d, n=%d, nnz=%d, d=%d)\n", $SIZE(m), $SIZE(n), $SIZE(nnz), $SIZE(d));fflush(stderr);)
+  svdslepc_init_func("PDL::SVDSLEPc::_slepc_svd_int",INT2PTR(AV*, $COMP(optsArray)),NULL, &argc,&argv);
   ierr = PetscOptionsHasName(NULL,"-help",&flg_help);CHKERRV(ierr);
 
   //-- setup (dummy) input matrix
@@ -407,12 +536,12 @@ pp_def
     ierr = MatCreateSeqAIJFromTriple(MPI_COMM_WORLD, 1,1, NULL,NULL,NULL, &A,0,PETSC_FALSE);CHKERRV(ierr);
     loop(d) %{
       $s() = 0;
-      loop(m) %{ $u() = 0; %}
-      loop(n) %{ $v() = 0; %}
+      loop(n) %{ $u() = 0; %}
+      loop(m) %{ $v() = 0; %}
     %}
   } else {
     SVDDEBUG(fprintf(stderr, "setup input matrix (real)\n");fflush(stderr);)
-    ierr = MatCreateSeqAIJWithArrays(MPI_COMM_WORLD, $SIZE(n),$SIZE(m), $P(rowptr),$P(colids),$P(nzvals), &A);CHKERRV(ierr);
+    ierr = MatCreateSeqAIJWithArrays(MPI_COMM_WORLD, $SIZE(m),$SIZE(n), $P(rowptr),$P(colids),$P(nzvals), &A);CHKERRV(ierr);
 #ifdef SVDDEBUG
     {
       PetscViewer view;
@@ -456,7 +585,7 @@ pp_def
     PetscInt nu,nv;
     ierr = VecGetSize(uvec,&nu);CHKERRV(ierr);
     ierr = VecGetSize(vvec,&nv);CHKERRV(ierr);
-    fprintf(stderr,"got uvec(%d~m=%d), vvec(%d~n=%d), d=%d\n", nu,$SIZE(m), nv,$SIZE(n), $SIZE(d));fflush(stderr);
+    fprintf(stderr,"got uvec(%d~n=%d), vvec(%d~m=%d), d=%d\n", nu,$SIZE(n), nv,$SIZE(m), $SIZE(d));fflush(stderr);
   }
 #endif
 
@@ -467,11 +596,11 @@ pp_def
     $s(d=>i) = sigma;
 
     ierr = VecGetArray(uvec,&uvals);CHKERRV(ierr);
-    loop(m) %{ $u(d=>i) = PetscRealPart(uvals[m]); %}
+    loop(n) %{ $u(d=>i) = PetscRealPart(uvals[n]); %}
     ierr = VecRestoreArray(uvec,&uvals);CHKERRV(ierr);
 
     ierr = VecGetArray(vvec,&vvals);CHKERRV(ierr);
-    loop(n) %{ $v(d=>i) = PetscRealPart(vvals[n]); %}
+    loop(m) %{ $v(d=>i) = PetscRealPart(vvals[m]); %}
     ierr = VecRestoreArray(vvec,&vvals);CHKERRV(ierr);
   }
 
@@ -485,41 +614,10 @@ pp_def
 '),
    Doc =>
 q(
-
-Compute the (truncated) singular value decomposition of a sparse matrix
-using a L<SLEPc SVD solver|http://slepc.upv.es/documentation/current/docs/manualpages/SVD/>.
-The sparse input matrix with $m() logical rows and $n() logical columns
-is passed in encoded in Harwell-Boeing sparse format in the input parameters $rowptr(), $colids(),
-and $nzvals().  See L<PDL::CCS> for a way to acquire these parameters
-from a dense input matrix, but note that for this function, the
-row-pointer $rowptr() is of size ($m+1)
-for a dense matrix $a with $m rows,
-where $ptr($m)==$nnz is the total number of nonzero
-values in $a.
-
-The left singular components are returned in the matrix $u(),
-the singular values themselved in the vector $s(), and the
-right singular components in the matrix $v().  Note that
-$u() and $v() must be specified explicitly
-in the call, so that the degree of reduction (the size parameter $d)
-can be determined.  If $d==min($m,$n), then a full decomposition
-will be computed, and on return, $u() and $v() should be
-variants (up to sign and specified error tolerance)
-of the matrices returned by L<PDL::MatrixOps::svd()|PDL::MatrixOps::svd>.
-
-Additional options to the underlying SLEPc and PETSc code can be passed
-command-line style in the ARRAY-ref C<optsArray>; see the output of
-L<slepc_svd_help()|slepc_svd_help> for a list of available options.
-For exammple, in order to compute the SVD using the Thick-restart Lanczos method with at
-most 128 iterations and a tolerance of 1e-5, you could call:
-
- _slepc_svd_crs($rowptr,$colids,$nzvals, $u,$s,$v, [qw(-svd_max_it 128 -svd_tol 1e-5)]);
-
-... but note that the number of singular values to be computed is determined
-by the PDL size parameter $d, clobbering any value specified by the option
-parmeter C<-svd_nsv>.  Also note that $d may not exceed min($m,$n).
-
+Guts for slepc_svd() with stricter calling conventions.
+The size parameters $m,$n, and $d and options array C<optsArray> are required.
 ),
+
 );
 
 

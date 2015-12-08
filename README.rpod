@@ -53,6 +53,20 @@ See L<perlmodinstall>(1) for details.
 During the build process, you may be prompted for the locations
 of required libraries, header files, etc.
 
+=head1 KNOWN BUGS
+
+You might see OpenMPI errors such as the following when trying to use this module:
+
+ mca: base: component find: unable to open /usr/lib/openmpi/lib/openmpi/mca_paffinity_hwloc: perhaps a missing symbol, or compiled for a different version of Open MPI? (ignored)
+
+If you do, you probably need to configure your runtime linker to pre-load the OpenMPI libraries, e.g. with
+
+ export LD_PRELOAD=/usr/lib/libmpi.so
+
+or similar.  An alternative is to build OpenMPI with the C<--disable-dlopen> option.
+See L<http://www.open-mpi.org/faq/?category=troubleshooting#missing-symbols> for details.
+
+
 =head1 AUTHOR
 
 Bryan Jurish E<lt>moocow@cpan.orgE<gt>
