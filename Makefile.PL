@@ -17,11 +17,12 @@ $package = ["svdslepc.pd",SVDSLEPc,PDL::SVDSLEPc];
 $hash{AUTHOR} = 'Bryan Jurish';
 $hash{ABSTRACT} = 'PDL interface to SLEPc sparse singular value decomposition';
 $hash{PREREQ_PM} = {
-		    PDL=>$cconfig{MIN_PDL_VERSION},
+		    'PDL'=>$cconfig{MIN_PDL_VERSION},
 		   };
 $hash{CONFIGURE_REQUIRES} = {
 			     'PDL'=>$cconfig{MIN_PDL_VERSION},
 			     'ExtUtils::MakeMaker'=>0,
+			     'Devel::CheckLib'=>0,
 			     'Data::Dumper'=>0,
 			    };
 $hash{BUILD_REQUIRES}{'Test::More'} = 0;

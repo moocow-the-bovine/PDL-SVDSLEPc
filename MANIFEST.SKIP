@@ -25,5 +25,4 @@
 ^SVDSLEPc.(?:c|pm|xs)$
 typemap
 ^perl$
-^petsc-view\.perl$
-
+^petsc-dump-matrix\.perl$

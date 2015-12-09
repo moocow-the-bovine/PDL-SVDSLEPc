@@ -46,7 +46,7 @@ foreach my $d (@SLEPC_DIRS) {
 cprompt("SLEPC_DIR", "SLEPc root directory", $SLEPC_DIR);
 if (!$cconfig{SLEPC_DIR} || !-d $cconfig{SLEPC_DIR} || !-r "$cconfig{SLEPC_DIR}/conf/slepc_variables") {
   warn("Warning: could not find SLEPc sources in SLEPC_DIR=".($cconfig{SLEPC_DIR}||''));
-  #return;
+  exit 0; ##-- cpantesters -> NA
 }
 
 ##--------------------------------------------------------------
@@ -72,7 +72,7 @@ foreach my $d (@PETSC_DIRS) {
 cprompt("PETSC_DIR", "PETSc root directory", $PETSC_DIR);
 if (!$cconfig{PETSC_DIR} || !-d $cconfig{PETSC_DIR} || !-r "$cconfig{PETSC_DIR}/conf/petscvariables") {
   warn("Warning: could not find PETSc sources in PETSC_DIR=".($cconfig{PETSC_DIR}||''));
-  #return;
+  exit 0; ##-- cpantesters -> NA
 }
 
 ##--------------------------------------------------------------
@@ -100,6 +100,12 @@ cprompt("SVDSLEPC_CPPFLAGS", "Additional preprocessor flags for SVDSLEPc", $ENV{
 cprompt("SVDSLEPC_CCFLAGS", "Additional compiler flags for SVDSLEPc", $ENV{SVDSLEPC_CCFLAGS});
 cprompt("SVDSLEPC_LDFLAGS", "Additional linker flags for SVDSLEPc", $ENV{SVDSLEPC_LDFLAGS});
 
+##--------------------------------------------------------------
+## check for slepc c library
+use Devel::CheckLib;
+check_lib_or_exit(lib => 'slepc',
+		  LIBS => $cconfig{SVDSLEPC_LDFLAGS},
+		 );
 
 ##--------------------------------------------------------------
 ## save cache file

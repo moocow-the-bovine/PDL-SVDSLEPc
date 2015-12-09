@@ -1,4 +1,7 @@
 Changes for perl/PDL module PDL::SVDSLEPc
 
+v0.002 Wed, 09 Dec 2015 09:13:29 +0100
+	+ check for libslepc availability with Devel::CheckLib (-> NA if not found)
+
 v0.001 Tue, 08 Dec 2015 15:13:32 +0100
 	+ initial version
