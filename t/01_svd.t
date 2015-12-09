@@ -2,7 +2,7 @@
 # t/01_svd.t: test SLEPc svd
 use Test::More tests=>37, todo=>[];
 
-$TEST_DIR = './t';
+my $TEST_DIR = './t';
 #use lib qw(../blib/lib ../blib/arch); $TEST_DIR = '.'; # for debugging
 
 ##----------------------------------------------------------------------

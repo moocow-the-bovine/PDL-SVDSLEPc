@@ -4,7 +4,7 @@
 ## Header Administrivia
 ##======================================================================
 
-our $VERSION = "0.002";
+our $VERSION = "0.003";
 pp_setversion($VERSION);
 
 do "./Config.cache";
@@ -124,7 +124,16 @@ void *svdslepc_libmpi_handle=NULL;
 # define SVDDEBUG(x)
 #endif
 
-//-- ganked from slepc4py
+//-- SLEPc API isn't too stable: detect version stuff
+#if SLEPC_VERSION_MAJOR>3 || (SLEPC_VERSION_MAJOR==3 && SLEPC_VERSION_MINOR>=4)
+#define SLEPC_V3_4 1
+#endif
+
+#if SLEPC_VERSION_MAJOR>3 || (SLEPC_VERSION_MAJOR==3 && SLEPC_VERSION_MINOR>=2)
+#define SLEPC_V3_2 1
+#endif
+
+//-- lifted from slepc4py : does this really do anything at all?
 #define MPICH_SKIP_MPICXX 1
 #define OMPI_SKIP_MPICXX 1
 
@@ -138,7 +147,11 @@ pp_addhdr(<<'EOH');
 
 void svdslepc_init(int argc, const char **argv, const char *help)
 {
+#if SLEPC_HAVE_V3_4
   SlepcInitializeNoPointers(argc, (char**)argv, NULL, help);
+#else
+  SlepcInitialize(&argc, (char***)&argv, NULL, help);
+#endif
 }
 
 /* PAIN AND ANGUISH:
@@ -567,7 +580,11 @@ pp_def
   //-- setup (dummy) input matrix
   if ($SIZE(nnz)==0) {
     SVDDEBUG(fprintf(stderr, "setup input matrix (dummy)\n");fflush(stderr);)
+#if SLEPC_HAVE_V3_4
     ierr = MatCreateSeqAIJFromTriple(MPI_COMM_WORLD, 1,1, NULL,NULL,NULL, &A,0,PETSC_FALSE);CHKERRV(ierr);
+#else
+    ierr = MatCreateSeqAIJ(MPI_COMM_WORLD, 1,1,0, NULL, &A);CHKERRV(ierr);
+#endif
     loop(d) %{
       $s() = 0;
       loop(n) %{ $u() = 0; %}
