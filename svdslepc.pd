@@ -429,7 +429,7 @@ but otherwise will be estimated from $rowptr(), $colids(), and/or \@options.
 If $d==min($m,$n) [the default], then a full decomposition
 will be computed, and on return, $u() and $v() should be
 variants (up to sign and specified error tolerance)
-of the matrices returned by L<PDL::MatrixOps::svd()|PDL::MatrixOps::svd>.
+of the matrices returned by L<PDL::MatrixOps::svd()|PDL::MatrixOps/svd>.
 
 Additional options to the underlying SLEPc and PETSc code can be passed
 command-line style in the ARRAY-ref C<\@options>; see the output of
