@@ -433,7 +433,7 @@ of the matrices returned by L<PDL::MatrixOps::svd()|PDL::MatrixOps/svd>.
 
 Additional options to the underlying SLEPc and PETSc code can be passed
 command-line style in the ARRAY-ref C<\@options>; see the output of
-L<slepc_svd_help()|slepc_svd_help> for a list of available options.
+L<slepc_svd_help()|/slepc_svd_help> for a list of available options.
 In particular, the option C<-svd_nsv> can be used to specify the
 number of singular values to be returned ($d) if you choose to omit
 both the $d paramter and nontrivial output piddles.
@@ -644,7 +644,7 @@ pp_def
 '),
    Doc =>
 q(
-Guts for L<slepc_svd()|slepc_svd> with stricter calling conventions:
+Guts for L<slepc_svd()|/slepc_svd> with stricter calling conventions:
 The input matrix must be passed as a Harwell-Boeing triple
 C<($rowptr,$colids,$nzvals)>,
 and the size parameters C<M>, C<N>, and C<D> and options array C<optsArray> are all mandatory.
