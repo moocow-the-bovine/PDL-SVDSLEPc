@@ -441,11 +441,15 @@ For example, in order to compute a truncated SVD using with 32 singular values u
 the Thick-restart Lanczos method with at
 most 128 iterations and a tolerance of 1e-5, you could call:
 
- ($u,$s,$v) = slepc_svd($rowptr,$colids,$nzvals, [qw(-svd_nsv 32 -svd_max_it 128 -svd_tol 1e-5)]);
+ ($u,$s,$v) = slepc_svd($rowptr,$colids,$nzvals,
+                        [qw(-svd_type trlanczos
+                            -svd_nsv 32
+                            -svd_max_it 128
+                            -svd_tol 1e-5)]);
 
 ... or if you already have a L<PDL::CCS::Nd|PDL::CCS::Nd> object $ccs handy:
 
-  ($u,$s,$v) = $ccs->slepc_svd([-svd_nsv=>32, -svd_max_it=>128, -svd_tol=>1e-5]);
+  ($u,$s,$v) = $ccs->slepc_svd([-svd_type=>'trlanczos', -svd_nsv=>32, -svd_max_it=>128, -svd_tol=>1e-5]);
 
 =cut
 

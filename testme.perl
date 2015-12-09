@@ -142,7 +142,7 @@ sub test_help {
     print "help = $buf";
   }
 }
-#test_help; exit 0;
+test_help; exit 0;
 
 ##---------------------------------------------------------------------
 ## test: option passing
