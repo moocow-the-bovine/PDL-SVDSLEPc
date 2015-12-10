@@ -142,10 +142,10 @@ sub test_help {
     print "help = $buf";
   }
 }
-test_help; exit 0;
+#test_help; exit 0;
 
 ##---------------------------------------------------------------------
-## test: option passing
+## Test: option passing
 sub test_opts {
   my $u = zeroes($d,$m);
   my $s = zeroes($d);
@@ -195,7 +195,7 @@ sub test_svd {
      svderrs("a-(u,s,v)",svdcompose($u,$s,$v),$a),
     );
 }
-#test_svd(@ARGV); exit 0;
+test_svd(@ARGV); exit 0;
 
 ##---------------------------------------------------------------------
 ## test: svd computation: transpose

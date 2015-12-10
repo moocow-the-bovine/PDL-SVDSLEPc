@@ -566,7 +566,7 @@ pp_def
   const char **argv;
   PetscErrorCode ierr;
   PetscBool      flg_help, flg_nsv,flg_ncv,flg_mpd;
-  PetscInt       i, nsv,ncv,mpd; //-- svd params
+  PetscInt       i, nsv,ncv,mpd, nconv; //-- svd params
   Mat A;
   SVD svd;
   Vec uvec,vvec;
@@ -629,7 +629,7 @@ pp_def
   SVDDEBUG(fprintf(stderr, "compute (nsv=%d, ncv=%d, mpd=%d)\n", nsv, ncv, mpd);fflush(stderr);)
   ierr = SVDSolve(svd);CHKERRV(ierr);
 
-  //-- get output data
+  //-- allocate output vectors
   SVDDEBUG(fprintf(stderr, "get output data (m=%d, n=%d, d=%d)\n", $SIZE(m), $SIZE(n), $SIZE(d));fflush(stderr);)
   //ierr = MatCreateVecs(A,&u,&v);CHKERRV(ierr);    //-- documented in petsc-3.6.2, does NOT exist in 3.4.2 (debian wheezy)
   ierr = MatGetVecs(A,&uvec,&vvec);CHKERRV(ierr);
@@ -642,7 +642,11 @@ pp_def
   }
 #endif
 
-  for (i=0; i < nsv; ++i) {
+  //-- get number of converged values
+  ierr = SVDGetConverged(svd,&nconv);CHKERRV(ierr);
+  if (nconv > nsv) nconv = nsv;
+
+  for (i=0; i < nconv; ++i) {
     PetscScalar *uvals,*vvals;
     ierr = SVDGetSingularTriplet(svd,i,&sigma,vvec,uvec);CHKERRV(ierr);
 
@@ -655,6 +659,13 @@ pp_def
     ierr = VecGetArray(vvec,&vvals);CHKERRV(ierr);
     loop(m) %{ $v(d=>i) = PetscRealPart(vvals[m]); %}
     ierr = VecRestoreArray(vvec,&vvals);CHKERRV(ierr);
+  }
+
+  //-- zero output piddle slots for unconverged values (if any)
+  for ( ; i < nsv; ++i) {
+    $s(d=>i) = 0;
+    loop(n) %{ $u(d=>i) = 0; %}
+    loop(m) %{ $v(d=>i) = 0; %}
   }
 
   //-- cleanup
