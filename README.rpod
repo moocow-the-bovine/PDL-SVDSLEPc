@@ -55,6 +55,8 @@ of required libraries, header files, etc.
 
 =head1 KNOWN BUGS
 
+=head2 OpenMPI errors "mca: base: component find: unable to open ..."
+
 You might see OpenMPI errors such as the following when trying to use this module:
 
  mca: base: component find: unable to open /usr/lib/openmpi/lib/openmpi/mca_paffinity_hwloc: perhaps a missing symbol, or compiled for a different version of Open MPI? (ignored)
@@ -65,6 +67,39 @@ If you do, you probably need to configure your runtime linker to pre-load the Op
 
 or similar.  An alternative is to build OpenMPI with the C<--disable-dlopen> option.
 See L<http://www.open-mpi.org/faq/?category=troubleshooting#missing-symbols> for details.
+
+=head2 OpenMPI warnings "... unable to find any relevant network interfaces ... (openib)"
+
+This OpenMPI warning has been observed on Ubuntu 14.04; it can be suppressed by setting the OpenMPI
+MCA C<btl> ("byte transfer layer") parameter to exclude the C<openib> module.
+This can be
+accomplished in various ways, e.g.:
+
+=over 4
+
+=item via command-line parameters to C<mpiexec>:
+
+Call your program as:
+
+ $ mpiexec --mca btl ^openib PROGRAM...
+
+=item via environment variables
+
+You can set the OpenMPI MCA paramters via environment variables, e.g.:
+
+ $ export OMPI_MCA_btl="^openib"
+ $ PROGRAM...
+
+=item via configuration files
+
+You can set OpenMPI MCA parameters via F<$HOME/.openmpi/mac-params.conf>:
+
+ ##-- suppress annoying warnings about missing openib
+ btl = ^openib
+
+=back
+
+See L<http://www.open-mpi.de/faq/?category=tuning#setting-mca-params> for more details.
 
 
 =head1 AUTHOR

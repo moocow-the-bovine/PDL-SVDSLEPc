@@ -2,6 +2,7 @@ Changes for perl/PDL module PDL::SVDSLEPc
 
 v0.003 Wed, 09 Dec 2015 16:19:25 +0100
 	+ fixes for SLEPc v3.2 (e.g. debian wheezy)
+	+ fixes & added docs for libopenmpi 1.6.5-8 (e.g. ubuntu 14.04.2)
 
 v0.002 Wed, 09 Dec 2015 09:13:29 +0100
 	+ check for libslepc availability with Devel::CheckLib (-> NA if not found)
