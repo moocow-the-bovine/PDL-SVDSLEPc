@@ -1,31 +1,44 @@
 # -*- Mode: CPerl -*-
 # t/01_svd.t: test SLEPc svd
-use Test::More tests=>37, todo=>[];
+use Test::More tests => 37;
 
-my $TEST_DIR = './t';
-#use lib qw(../blib/lib ../blib/arch); $TEST_DIR = '.'; # for debugging
+##-- common subs
+my $TEST_DIR;
+BEGIN {
+  use File::Basename;
+  use Cwd;
+  $TEST_DIR = Cwd::abs_path dirname( __FILE__ );
+  eval qq{use lib ("$TEST_DIR/$_/blib/lib","$TEST_DIR/$_/blib/arch");} foreach (qw(../.. ..));
+  do "$TEST_DIR/common.plt" or  die("$0: failed to load $TEST_DIR/common.plt: $@");
+}
 
-##----------------------------------------------------------------------
-## load modules
+##-- common modules
 use PDL;
 use PDL::SVDSLEPc;
 
 ##----------------------------------------------------------------------
 ## setup
-$a = pdl(double,
-	 [[10,0,0,0,-2,0,0],
-	  [3,9,0,0,0,3,1],
-	  [0,7,8,7,0,0,0],
-	  [3,0,8,7,5,0,1],
-	  [0,8,0,9,9,13,0],
-	  [0,4,0,0,2,-1,1]]);
+my $a = pdl(double,
+	    [[10,0,0,0,-2,0,0],
+	     [3,9,0,0,0,3,1],
+	     [0,7,8,7,0,0,0],
+	     [3,0,8,7,5,0,1],
+	     [0,8,0,9,9,13,0],
+	     [0,4,0,0,2,-1,1]]);
 
-$ptr=pdl(long,[0,3,7,9,12,16,19, 22]);
-$colids=pdl(long,[0,1,3,1,2,4,5,2,3,2,3,4,0,3,4,5,1,4,5,1,3,5]);
-$nzvals=pdl(double,[10,3,3,9,7,8,4,8,8,7,7,9,-2,5,9,2,3,13,-1,1,1,1]);
+my $ptr=pdl(long,[0,3,7,9,12,16,19, 22]);
+my $colids=pdl(long,[0,1,3,1,2,4,5,2,3,2,3,4,0,3,4,5,1,4,5,1,3,5]);
+my $nzvals=pdl(double,[10,3,3,9,7,8,4,8,8,7,7,9,-2,5,9,2,3,13,-1,1,1,1]);
+my ($m,$n) = $a->dims;
 
-($m,$n) = $a->dims;
+##-- common variables
+my ($u,$s,$v);
 
+##-- expected values
+my $d  = min2($n,$m);
+my $d1 = $d-1;
+my $s_want = pdl(double,
+		 [23.3228474410401, 12.9401616781924, 10.9945440916999, 9.08839598479767, 3.84528764361343, 1.1540470359863, 0]);
 
 ##----------------------------------------------------------------------
 ## common subs
@@ -56,15 +69,9 @@ sub svdtest {
   my $ns = $s->nelem;
   $eps_s = .01    if (!defined($eps_s));
   $eps_v = $eps_s if (!defined($eps_v));
-  ok( all($s->approx($s_want->slice("0:".($ns-1)),$eps_s)), "${label} - s [eps=$eps_s]" );
-  ok( all(svdcompose($u,$s,$v)->approx($a,$eps_v)), "${label} - vals [eps=$eps_v]" );
+  pdlapprox("${label} - s [eps=$eps_s]", $s, $s_want->slice("0:".($ns-1)), $eps_s);
+  pdlapprox("${label} - vals [eps=$eps_v]", svdcompose($u,$s,$v), $a, $eps_v);
 }
-
-##-- expected values
-$d  = min2($n,$m);
-$d1 = $d-1;
-$s_want = pdl(double,
-	      [23.3228474410401, 12.9401616781924, 10.9945440916999, 9.08839598479767, 3.84528764361343, 1.1540470359863, 0]);
 
 ##----------------------------------------------------------------------
 ## builtin

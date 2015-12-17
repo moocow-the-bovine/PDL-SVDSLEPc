@@ -13,5 +13,6 @@ svdslepc.pd				# SVDSLEPc.pm
 
 t/00_basic.t
 t/01_svd.t
+t/common.plt
 
 META.yml                                 Module meta-data (added by MakeMaker)
